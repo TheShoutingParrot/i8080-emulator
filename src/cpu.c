@@ -4,7 +4,7 @@
 
 static void cpuResetStatusRegister(void);
 static void clearOrSetParityBit(uint8_t value);
-static void cpuPushTostack(uint16_t data);
+static void cpuPushToStack(uint16_t data);
 static uint16_t cpuPopFromStack(void);
 static void cpuWriteWordToRegisterPair(uint8_t r1, uint8_t r2, uint16_t data);
 static void cpuJumpToAddr(uint16_t addr);
