@@ -4,7 +4,7 @@
 
 void printCpuState(void) {
 	printf("registers: bc %02X%02X de %02X%02X hl %02X%02X psw: %02X%02X\n"
-		"\tflags: c: %d p: %d ac: %d z: %d s: %d\nsp: %X\ncycles: %d\n", 
+		"\tflags: c: %d p: %d ac: %d z: %d s: %d\nsp: %X\ncycles: %d\n\n", 
 		registers[rB], registers[rC], 
 		registers[rD], registers[rE],
 		registers[rH], registers[rL], 
@@ -19,7 +19,7 @@ void printCpuState(void) {
 }
 
 int main(void) {
-	loadRom("cpu_tests/TST8080.COM", 0x100);
+	loadRom("cpu_tests/CPUTEST.COM", 0x100);
 
 	programCounter = 0x100;
 
@@ -31,6 +31,8 @@ int main(void) {
 
 	for(;;) {
 		cpuExecuteInstruction();
+
+		/* fgetc(stdin); */
 	}
 	
 	return EXIT_FAILURE; /* program shouldn't get here */

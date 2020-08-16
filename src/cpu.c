@@ -281,7 +281,7 @@ static void cpuInstructionCALL(uint16_t addr) {
 #ifdef _CPU_TEST
 	if(programCounter == 5) {
 		if(registers[rC] == 2)
-			printf("%c\n", registers[rE]);
+			printf("%c", registers[rE]);
 		if(registers[rC] == 9) {
 			uint16_t i = (registers[rD] << 8 | registers[rE] & 0x00FF);
 			while(readMemory(i) != '$')
@@ -1886,6 +1886,12 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* RST 0 */
+		case 0xC7:
+			cpuInstructionCALL(0x0000);
+
+			break;
+
 		/* RZ */
 		case 0xC8:
 			cpuReturnIf(isBitSet(registers[rSTATUS], zeroF));
@@ -2140,6 +2146,15 @@ void cpuExecuteInstruction(void) {
 			cycleCounter += 10;
 
 			break;
+
+		/* DI */
+		case 0xF3:
+			/* This instruction doesn't do anything in the cpu tests
+			 * such as CPUTEST.COM */
+
+			cycleCounter += 4;
+
+			break;
 	
 		/* CP a16 */
 		case 0xF4:
@@ -2202,6 +2217,11 @@ void cpuExecuteInstruction(void) {
 
 		default:
 			puts("unrecognized opcode");
+
+			printf("opcode: %X\n", opcode);
+
+			printCpuState();
+
 			exit(1);
 	}
 
