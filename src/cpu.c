@@ -1830,6 +1830,14 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* CMP A  */
+		case 0xBF:
+			cpuInstructionCPI(registers[rA]);
+
+			cycleCounter += 4;
+
+			break;
+
 		/* RNZ */
 		case 0xC0:
 			cpuReturnIf(!isBitSet(registers[rSTATUS], zeroF));
@@ -2149,8 +2157,7 @@ void cpuExecuteInstruction(void) {
 
 		/* DI */
 		case 0xF3:
-			/* This instruction doesn't do anything in the cpu tests
-			 * such as CPUTEST.COM */
+			/* This instruction doesn't do anything in the cpu tests */
 
 			cycleCounter += 4;
 
@@ -2197,6 +2204,14 @@ void cpuExecuteInstruction(void) {
 					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
 
 			cycleCounter += 10;
+
+			break;
+
+		/* EI */
+		case 0xFB:
+			/* This instruction doesn't do anything in the cpu tests */
+
+			cycleCounter += 4;
 
 			break;
 
