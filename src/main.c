@@ -18,16 +18,23 @@ void printCpuState(void) {
 		cycleCounter);
 }
 
+void printSuperzazuStyleState(void) {
+        printf("PC: %04X, AF: %04X, BC: %04X, DE: %04X, HL: %04X, SP: %04X, CYC: %lu",
+                programCounter, registers[rA] << 8 | registers[rSTATUS],
+                registers[rB] << 8 | registers[rC], registers[rD] << 8 | registers[rE],
+                registers[rH] << 8 | registers[rL],
+                stackPointer, cycleCounter);
+
+        printf("\t(%02X %02X %02X %02X)\n", readMemory(programCounter), readMemory(programCounter + 1),
+                readMemory(programCounter + 2), readMemory(programCounter + 3));
+}
+
 int main(void) {
 	loadRom("cpu_tests/CPUTEST.COM", 0x100);
 
 	programCounter = 0x100;
 
 	registers[rSTATUS] = (0 << 5) | (0 << 3) | (1 << 1);
-
-	printf("beginning cpu tests...\nprinting current cpu state...\n");
-	printCpuState();
-	putchar('\n');
 
 	for(;;) {
 		cpuExecuteInstruction();

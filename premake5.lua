@@ -14,6 +14,6 @@ project "invadersemu"
         files { "include/*.h", "src/*.c" }
 
         filter "configurations:Debug"
-                defines { "DEBUG", "_CPU_TEST" }
+                defines { "DEBUG", "_CPU_TEST", "ZAZUSTYLE_DEBUG" }
 		buildoptions { "-g" }
                 symbols "On"

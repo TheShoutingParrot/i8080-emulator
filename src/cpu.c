@@ -363,6 +363,10 @@ void cpuExecuteInstruction(void) {
 	printf("pc: %04X opcode: %02X\n", programCounter, opcode);
 #endif /* #ifdef _VERBOSE_DEBUG */
 
+#ifdef ZAZUSTYLE_DEBUG
+        printSuperzazuStyleState();
+#endif
+
 	programCounter++;
 
 	switch(opcode) {
@@ -2074,7 +2078,7 @@ void cpuExecuteInstruction(void) {
 		case 0xE5:
 			cpuPushToStack(registers[rH] << 8 | registers[rL]);
 
-			cycleCounter += 13;
+			cycleCounter += 11;
 
 			break;
 
@@ -2174,7 +2178,7 @@ void cpuExecuteInstruction(void) {
 		case 0xF5:
 			cpuPushToStack(registers[rA] << 8 | registers[rSTATUS]);
 
-			cycleCounter += 13;
+			cycleCounter += 11;
 
 			break;
 
