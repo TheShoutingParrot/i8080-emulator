@@ -130,8 +130,7 @@ static void cpuInstructionORI(uint8_t value) {
 	clearOrSetParityBit(registers[rA]);
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], auxCarryF,
-			isBitSet(registers[rSTATUS], 3) | isBitSet(registers[rA], 3));
+	clearOrSetBit(&registers[rSTATUS], auxCarryF, 0);
 
 	/* zero */
 	clearOrSetBit(&registers[rSTATUS], zeroF, !registers[rA]);
@@ -216,10 +215,10 @@ static void cpuSubtract(uint8_t r, uint8_t value) {
 	cpuResetStatusRegister();
 
 	/* carry */
-	clearOrSetBit(&registers[rSTATUS], 0, ((((int16_t)registers[r] - (int16_t)value)) < 0));
+	clearOrSetBit(&registers[rSTATUS], 0, (((int16_t)registers[rA] - ((int16_t)value)) < 0));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, (((registers[r] & 0x0F) - (value & 0x0F) > 0x0F)));
+	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[rA] & 0x0F) - (value & 0x0F))) < 0x0F);
 	
 	registers[r] -= value;
 
@@ -247,10 +246,10 @@ static void cpuInstructionSBI(uint8_t value) {
 	value += (int8_t)borrowBit;
 
 	/* carry */
-	clearOrSetBit(&registers[rSTATUS], 0, (((int16_t)registers[rA] - ((int16_t)value)) < 0));
+	clearOrSetBit(&registers[rSTATUS], 0, (((uint16_t)registers[rA] - ((uint16_t)value)) < 0));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, ((registers[rA] & 0x0F) - (value & 0x0F) > 0x0F));
+	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[rA] & 0x0F) - (value & 0x0F))) < 0x0F);
 	
 	registers[rA] -= value;
 
@@ -278,19 +277,6 @@ static void cpuInstructionCALL(uint16_t addr) {
 	cpuPushToStack(programCounter+2);
 	cpuJumpToAddr(addr);
 
-#ifdef _CPU_TEST
-	if(programCounter == 5) {
-		if(registers[rC] == 2)
-			printf("%c", registers[rE]);
-		if(registers[rC] == 9) {
-			uint16_t i = (registers[rD] << 8 | registers[rE] & 0x00FF);
-			while(readMemory(i) != '$')
-				printf("%c", readMemory(i++));
-		}
-		
-		cpuInstructionRET();
-	}
-#endif
 }
 
 static void cpuCallIf(bool value, uint16_t addr) {
@@ -331,7 +317,23 @@ static void cpuInstructionXCHG(void) {
 }
 
 static void cpuInstructionINR(uint8_t r) {
-	cpuAdd(r, 1);
+	/* carry */
+	clearBit(&registers[rSTATUS], carryF);
+
+	/* auxiliary carry*/
+	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[r] & 0x0F) + 1)) > 0x0F);
+	//clearOrSetBit(&registers[rSTATUS], auxCarryF, (registers[r] & 0x0F) == 0);
+	
+	registers[r]++;
+
+	/* parity */
+	clearOrSetParityBit(registers[r]);
+	
+	/* zero */
+	clearOrSetBit(&registers[rSTATUS], zeroF, !registers[r]);
+
+	/* sign */
+	clearOrSetBit(&registers[rSTATUS], signF, isBitSet(registers[r], 7));
 }
 
 static void cpuInstructionINX(uint8_t r1, uint8_t r2) {
@@ -339,7 +341,22 @@ static void cpuInstructionINX(uint8_t r1, uint8_t r2) {
 }
 
 static void cpuInstructionDCR(uint8_t r) {
-	cpuSubtract(r, 1);
+	/* carry */
+	clearBit(&registers[rSTATUS], 0);
+
+	/* auxiliary carry*/
+	clearOrSetBit(&registers[rSTATUS], 4, (registers[r] & 0x0F) != 0);
+	
+	registers[r]--;
+
+	/* parity */
+	clearOrSetParityBit(registers[r]);
+	
+	/* zero */
+	clearOrSetBit(&registers[rSTATUS], 6, !registers[r]);
+
+	/* sign */
+	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[r], 7));
 }
 
 static void cpuInstructionDCX(uint8_t r1, uint8_t r2) {
@@ -881,6 +898,12 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* MOV B, B */
+		case 0x40:
+			cycleCounter += 5;
+
+			break;
+
 		/* MOV B, C */
 		case 0x41:
 			cpuInstructionMOV(rB, rC);
@@ -941,6 +964,12 @@ void cpuExecuteInstruction(void) {
 		case 0x48:
 			cpuInstructionMOV(rC, rB);
 
+			cycleCounter += 5;
+
+			break;
+
+		/* MOV C, C */
+		case 0x49:
 			cycleCounter += 5;
 
 			break;
@@ -1009,6 +1038,12 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* MOV D, D */
+		case 0x52:
+			cycleCounter += 5;
+
+			break;
+
 		/* MOV D, E */
 		case 0x53:
 			cpuInstructionMOV(rD, rE);
@@ -1069,7 +1104,13 @@ void cpuExecuteInstruction(void) {
 		case 0x5A:
 			cpuInstructionMOV(rE, rD);
 
-			cycleCounter += 7;
+			cycleCounter += 5;
+
+			break;
+
+		/* MOV E, E */
+		case 0x5B:
+			cycleCounter += 5;
 
 			break;
 
@@ -1137,6 +1178,12 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* MOV H, H */
+		case 0x64:
+			cycleCounter += 5;
+
+			break;
+
 		/* MOV H, L */
 		case 0x65:
 			cpuInstructionMOV(rH, rL);
@@ -1197,6 +1244,12 @@ void cpuExecuteInstruction(void) {
 		case 0x6C:
 			cpuInstructionMOV(rL, rH);
 
+			cycleCounter += 5;
+
+			break;
+
+		/* MOV L, L */
+		case 0x6D:
 			cycleCounter += 5;
 
 			break;
@@ -1327,6 +1380,12 @@ void cpuExecuteInstruction(void) {
 			cpuInstructionMOVfromM(rA);
 
 			cycleCounter += 7;
+
+			break;
+
+		/* MOV A, A */
+		case 0x7F:
+			cycleCounter += 5;
 
 			break;
 
@@ -1830,7 +1889,7 @@ void cpuExecuteInstruction(void) {
 		case 0xBE:
 			cpuInstructionCPI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 
 			break;
 
@@ -1975,6 +2034,24 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* OUT d8, A */
+		case 0xD3:
+#ifdef _CPU_TEST
+			if(registers[rC] == 2)
+				printf("%c", registers[rE]);
+			if(registers[rC] == 9) {
+				uint16_t i = 
+					(registers[rD] << 8 | registers[rE] & 0x00FF);
+				while(readMemory(i) != '$')
+					printf("%c", readMemory(i++));
+			}
+#endif
+
+			programCounter++;
+			cycleCounter += 10;
+
+			break;
+
 		/* CNC a16 */
 		case 0xD4:
 			cpuCallIf(!isBitSet(registers[rSTATUS], carryF),
@@ -2063,7 +2140,7 @@ void cpuExecuteInstruction(void) {
 			registers[rL] = readMemory(stackPointer);
 			writeMemory(stackPointer, temp);
 
-			cycleCounter += 17;
+			cycleCounter += 18;
 
 			break;
 

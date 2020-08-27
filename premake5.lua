@@ -1,5 +1,5 @@
-workspace "invadersemu"
-        configurations { "Debug"}
+workspace "i8080-emulator"
+        configurations { "Debug", "Release" }
 
         libdirs {os.findlib("SDL2")}
 
@@ -8,7 +8,7 @@ workspace "invadersemu"
 
 	includedirs { "include/" }
 
-project "invadersemu"
+project "i8080-emulator"
         targetdir "bin/%{cfg.buildcfg}"
 
         files { "include/*.h", "src/*.c" }
@@ -17,3 +17,7 @@ project "invadersemu"
                 defines { "DEBUG", "_CPU_TEST", "ZAZUSTYLE_DEBUG" }
 		buildoptions { "-g" }
                 symbols "On"
+
+	filter "configurations:Release"
+                defines { "_CPU_TEST" }
+		optimize "Speed"

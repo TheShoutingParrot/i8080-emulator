@@ -30,4 +30,8 @@ void loadRom(const char *path, const uint16_t start) {
 	rewind(romFile);
 
 	fread(&memory[start], fileSize, sizeof(uint8_t), romFile);
+
+	memory[0x0005] = 0xD3;
+	memory[0x0006] = 0x01;
+	memory[0x0007] = 0xC9;
 }

@@ -24,8 +24,9 @@ enum _flags {
 
 uint8_t		registers[totalR];
 uint16_t	programCounter,
-		stackPointer,
-		cycleCounter;
+		stackPointer;
+
+size_t		cycleCounter;
 
 void cpuExecuteInstruction(void);
 
