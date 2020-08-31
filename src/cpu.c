@@ -99,6 +99,10 @@ static void cpuInstructionMOVfromM(uint8_t r) {
 static void cpuInstructionANI(uint8_t value) {
 	cpuResetStatusRegister();
 
+	/* auxiliary carry*/
+	clearOrSetBit(&registers[rSTATUS], 4,
+			isBitSet(value, 3) | isBitSet(registers[rA], 3));
+
 	registers[rA] &= value;
 
 	/* carry */
@@ -106,10 +110,6 @@ static void cpuInstructionANI(uint8_t value) {
 
 	/* parity */
 	clearOrSetParityBit(registers[rA]);
-
-	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4,
-			isBitSet(registers[rSTATUS], 3) | isBitSet(registers[rA], 3));
 
 	/* zero */
 	clearOrSetBit(&registers[rSTATUS], 6, !registers[rA]);
@@ -151,8 +151,7 @@ static void cpuInstructionXRI(uint8_t value) {
 	clearOrSetParityBit(registers[rA]);
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], auxCarryF,
-			isBitSet(registers[rSTATUS], 3) | isBitSet(registers[rA], 3));
+	clearBit(&registers[rSTATUS], auxCarryF);
 
 	/* zero */
 	clearOrSetBit(&registers[rSTATUS], zeroF, !registers[rA]);
@@ -212,14 +211,13 @@ static void cpuInstructionACI(uint8_t value) {
 }
 
 static void cpuSubtract(uint8_t r, uint8_t value) {
-	cpuResetStatusRegister();
-
 	/* carry */
 	clearOrSetBit(&registers[rSTATUS], 0, (((int16_t)registers[rA] - ((int16_t)value)) < 0));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[rA] & 0x0F) - (value & 0x0F))) < 0x0F);
-	
+	clearOrSetBit(&registers[rSTATUS], 4, ((registers[rA]&0x0f) + ((~value)&0x0f)) >= 0x0f);
+#warning epiC
+
 	registers[r] -= value;
 
 	/* parity */
@@ -241,15 +239,13 @@ static void cpuInstructionSBI(uint8_t value) {
 
 	borrowBit = isBitSet(registers[rSTATUS], carryF);
 
-	cpuResetStatusRegister();
-
-	value += (int8_t)borrowBit;
+	value += (uint8_t)borrowBit;
 
 	/* carry */
 	clearOrSetBit(&registers[rSTATUS], 0, (((uint16_t)registers[rA] - ((uint16_t)value)) < 0));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[rA] & 0x0F) - (value & 0x0F))) < 0x0F);
+	clearOrSetBit(&registers[rSTATUS], 4, (((registers[rA] & 0x0F) > (value & 0x0F))));
 	
 	registers[rA] -= value;
 
@@ -268,7 +264,7 @@ static void cpuInstructionCPI(uint8_t value) {
 
 	temp = registers[rA];
 
-	cpuInstructionSUI(value);
+	cpuSubtract(rA, value);
 
 	registers[rA] = temp;
 }
@@ -457,6 +453,12 @@ void cpuExecuteInstruction(void) {
 
 			break;
 
+		/* ILLEGAL/UNDOCUMENTED OPCODE - NOP */
+		case 0x08:
+			cycleCounter += 4;
+
+			break;
+
 		/* DAD BC */
 		case 0x09:
 			cpuInstructionDAD(cpuReadRegisterPair(rB, rC));
@@ -515,6 +517,12 @@ void cpuExecuteInstruction(void) {
 
 			clearOrSetBit(&registers[rA], 7, temp);
 
+			cycleCounter += 4;
+
+			break;
+
+		/* ILLEGAL/UNDOCUMENTED OPCODE - NOP */
+		case 0x10:
 			cycleCounter += 4;
 
 			break;
@@ -895,6 +903,8 @@ void cpuExecuteInstruction(void) {
 		/* CMC */
 		case 0x3F:
 			clearOrSetBit(&registers[rSTATUS], carryF, !isBitSet(registers[rSTATUS], carryF));
+
+			cycleCounter += 4;
 
 			break;
 
@@ -1441,7 +1451,7 @@ void cpuExecuteInstruction(void) {
 		case 0x86:
 			cpuInstructionADI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 
 			break;
 
@@ -1569,7 +1579,7 @@ void cpuExecuteInstruction(void) {
 		case 0x96:
 			cpuInstructionSUI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 
 			break;
 
@@ -1633,7 +1643,7 @@ void cpuExecuteInstruction(void) {
 		case 0x9E:
 			cpuInstructionSBI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 
 			break;
 
@@ -1697,13 +1707,13 @@ void cpuExecuteInstruction(void) {
 		case 0xA6:
 			cpuInstructionANI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 				
 			break;
 
-		/* ANA H */
+		/* ANA A */
 		case 0xA7:
-			cpuInstructionANI(registers[rH]);
+			cpuInstructionANI(registers[rA]);
 
 			cycleCounter += 4;
 				
@@ -1761,7 +1771,7 @@ void cpuExecuteInstruction(void) {
 		case 0xAE:
 			cpuInstructionXRI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 
 			break;
 
@@ -1825,7 +1835,7 @@ void cpuExecuteInstruction(void) {
 		case 0xB6:
 			cpuInstructionORI(readMemory(cpuReadRegisterPair(rH, rL)));
 
-			cycleCounter += 4;
+			cycleCounter += 7;
 
 			break;
 
