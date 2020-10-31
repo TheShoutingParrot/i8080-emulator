@@ -31,7 +31,9 @@ void loadRom(const char *path, const uint16_t start) {
 
 	fread(&memory[start], fileSize, sizeof(uint8_t), romFile);
 
+#ifdef _CPU_TEST
 	memory[0x0005] = 0xD3;
 	memory[0x0006] = 0x01;
 	memory[0x0007] = 0xC9;
+#endif /* #ifdef _CPU_TEST */
 }

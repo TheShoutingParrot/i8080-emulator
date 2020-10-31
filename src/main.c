@@ -30,7 +30,10 @@ void printSuperzazuStyleState(void) {
 }
 
 int main(void) {
-	loadRom("cpu_tests/CPUTEST.COM", 0x100);
+	//loadRom("test.com", 0x100);
+	loadRom("cpu_tests/8080EXM.COM", 0x100);
+	//loadRom("cpu_tests/CPUTEST.COM", 0x100);
+	//loadRom("cpu_tests/TST8080.COM", 0x100);
 
 	programCounter = 0x100;
 
@@ -39,7 +42,9 @@ int main(void) {
 	for(;;) {
 		cpuExecuteInstruction();
 
-		/* fgetc(stdin); */
+#ifdef DEBUG
+		fgetc(stdin);
+#endif
 	}
 	
 	return EXIT_FAILURE; /* program shouldn't get here */

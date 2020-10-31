@@ -313,12 +313,8 @@ static void cpuInstructionXCHG(void) {
 }
 
 static void cpuInstructionINR(uint8_t r) {
-	/* carry */
-	clearBit(&registers[rSTATUS], carryF);
-
 	/* auxiliary carry*/
 	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[r] & 0x0F) + 1)) > 0x0F);
-	//clearOrSetBit(&registers[rSTATUS], auxCarryF, (registers[r] & 0x0F) == 0);
 	
 	registers[r]++;
 
@@ -337,9 +333,6 @@ static void cpuInstructionINX(uint8_t r1, uint8_t r2) {
 }
 
 static void cpuInstructionDCR(uint8_t r) {
-	/* carry */
-	clearBit(&registers[rSTATUS], 0);
-
 	/* auxiliary carry*/
 	clearOrSetBit(&registers[rSTATUS], 4, (registers[r] & 0x0F) != 0);
 	
@@ -819,8 +812,21 @@ void cpuExecuteInstruction(void) {
 
 		/* INR M */
 		case 0x34:
-			writeMemory(cpuReadRegisterPair(rH, rL),
-					readMemory(cpuReadRegisterPair(rH, rL)) + 1);
+			temp = readMemory(cpuReadRegisterPair(rH, rL));
+
+			/* auxiliary carry*/
+			clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)(temp & 0x0F) + 1) > 0x0F);
+
+			writeMemory(cpuReadRegisterPair(rH, rL), ++temp);
+
+			/* parity */
+			clearOrSetParityBit(temp);
+	
+			/* zero */
+			clearOrSetBit(&registers[rSTATUS], zeroF, !temp);
+
+			/* sign */
+			clearOrSetBit(&registers[rSTATUS], signF, isBitSet(temp, 7));
 
 			cycleCounter += 10;
 
@@ -828,8 +834,22 @@ void cpuExecuteInstruction(void) {
 
 		/* DCR M */
 		case 0x35:
-			writeMemory(cpuReadRegisterPair(rH, rL),
-					readMemory(cpuReadRegisterPair(rH, rL)) - 1);
+			temp = readMemory(cpuReadRegisterPair(rH, rL));
+			
+			/* auxiliary carry*/
+			clearOrSetBit(&registers[rSTATUS], 4, (temp & 0x0F) != 0);
+
+			writeMemory(cpuReadRegisterPair(rH, rL), --temp);
+
+			/* parity */
+			clearOrSetParityBit(temp);
+	
+			/* zero */
+			clearOrSetBit(&registers[rSTATUS], 6, !temp);
+
+			/* sign */
+			clearOrSetBit(&registers[rSTATUS], 7, isBitSet(temp, 7));
+
 
 			cycleCounter += 10;
 
@@ -2231,7 +2251,7 @@ void cpuExecuteInstruction(void) {
 
 		/* POP PSW */
 		case 0xF1:
-			cpuWriteWordToRegisterPair(rA, rSTATUS, cpuPopFromStack());
+			cpuWriteWordToRegisterPair(rA, rSTATUS, (cpuPopFromStack() & 0xFFD7) | 0x0002);
 
 			cycleCounter += 10;
 
@@ -2263,7 +2283,8 @@ void cpuExecuteInstruction(void) {
 
 		/* PUSH PSW */
 		case 0xF5:
-			cpuPushToStack(registers[rA] << 8 | registers[rSTATUS]);
+			cpuPushToStack(registers[rA] << 8
+					| registers[rSTATUS] & 0xD7);
 
 			cycleCounter += 11;
 
@@ -2286,6 +2307,8 @@ void cpuExecuteInstruction(void) {
 		/* SPHL */
 		case 0xF9:
 			stackPointer = cpuReadRegisterPair(rH, rL);
+
+			cycleCounter += 5;
 
 			break;
 
@@ -2330,8 +2353,4 @@ void cpuExecuteInstruction(void) {
 
 			exit(1);
 	}
-
-#ifdef _VERBOSE_DEBUG
-	printCpuState();
-#endif /* #ifdef _VERBOSE_DEBUG */
 }

@@ -1,5 +1,5 @@
 workspace "i8080-emulator"
-        configurations { "Debug", "Release" }
+        configurations { "Debug", "DebugNoTest", "Release" }
 
         libdirs {os.findlib("SDL2")}
 
@@ -18,6 +18,9 @@ project "i8080-emulator"
 		buildoptions { "-g" }
                 symbols "On"
 
+	filter "configurations:DebugNoTest"
+                defines { "DEBUG", "ZAZUSTYLE_DEBUG" }
+
 	filter "configurations:Release"
-                defines { "_CPU_TEST" }
+		defines { "_CPU_TEST" }
 		optimize "Speed"
