@@ -2,2267 +2,2252 @@
 #include "util.h"
 #include "memory.h"
 
-static void cpuResetStatusRegister(void);
-static void clearOrSetParityBit(uint8_t value);
-static void cpuPushToStack(uint16_t data);
-static uint16_t cpuPopFromStack(void);
-static void cpuWriteWordToRegisterPair(uint8_t r1, uint8_t r2, uint16_t data);
-static void cpuJumpToAddr(uint16_t addr);
-static void cpuJumpIf(bool value, uint16_t addr);
-static void cpuInstructionMVI(uint8_t r, uint8_t data);
-static void cpuInstructionANI(uint8_t value);
-static void cpuInstructionADI(uint8_t value);
-static void cpuInstructionSUI(uint8_t value);
-static void cpuInstructionCPI(uint8_t value);
-static void cpuInstructionCALL(uint16_t addr);
-static void cpuInstructionRET(void);
-static void cpuInstructionXCHG(void);
+static void cpuResetStatusRegister(struct cpu8080 *cpu);
+static void clearOrSetParityBit(struct cpu8080 *cpu, uint8_t value);
+static void cpuPushToStack(struct cpu8080 *cpu, uint16_t data);
+static uint16_t cpuPopFromStack(struct cpu8080 *cpu);
+static void cpuWriteWordToRegisterPair(struct cpu8080 *cpu, uint8_t r1, uint8_t r2, uint16_t data);
+static void cpuJumpToAddr(struct cpu8080 *cpu, uint16_t addr);
+static void cpuJumpIf(struct cpu8080 *cpu, bool value, uint16_t addr);
+static void cpuInstructionMVI(struct cpu8080 *cpu, uint8_t r, uint8_t data);
+static void cpuInstructionANI(struct cpu8080 *cpu, uint8_t value);
+static void cpuInstructionADI(struct cpu8080 *cpu, uint8_t value);
+static void cpuInstructionSUI(struct cpu8080 *cpu, uint8_t value);
+static void cpuInstructionCPI(struct cpu8080 *cpu, uint8_t value);
+static void cpuInstructionCALL(struct cpu8080 *cpu, uint16_t addr);
+static void cpuInstructionRET(struct cpu8080 *cpu);
+static void cpuInstructionXCHG(struct cpu8080 *cpu);
 
-static void cpuResetStatusRegister(void) {
-	registers[rSTATUS] = 0x2;	
+void printCpuState(struct cpu8080 cpu) {
+        printf("PC: %04X, AF: %04X, BC: %04X, DE: %04X, HL: %04X, SP: %04X, CYC: %lu",
+                cpu.programCounter, cpu.registers[rA] << 8 | cpu.registers[rSTATUS],
+                cpu.registers[rB] << 8 | cpu.registers[rC], cpu.registers[rD] << 8 | cpu.registers[rE],
+                cpu.registers[rH] << 8 | cpu.registers[rL],
+                cpu.stackPointer, cpu.cycleCounter);
+
+        printf("\t(%02X %02X %02X %02X)\n", cpu.readMemory(cpu.memory, cpu.programCounter), cpu.readMemory(cpu.memory, cpu.programCounter + 1),
+                cpu.readMemory(cpu.memory, cpu.programCounter + 2), cpu.readMemory(cpu.memory, cpu.programCounter + 3));
 }
 
-static void clearOrSetParityBit(uint8_t value) {
+static void cpuResetStatusRegister(struct cpu8080 *cpu) {
+	cpu->registers[rSTATUS] = 0x2;	
+}
+
+static void clearOrSetParityBit(struct cpu8080 *cpu, uint8_t value) {
 	uint8_t temp;
 
 	temp = value ^ (value >> 4);
 	temp ^= (temp >> 2);
 	temp ^= (temp >> 1);
 
-	clearOrSetBit(&registers[rSTATUS], parityF, (temp & 1) == 0);
+	clearOrSetBit(&cpu->registers[rSTATUS], parityF, (temp & 1) == 0);
 }
 
-static void cpuPushToStack(uint16_t data) {
-	stackPointer -= 2;
-	writeMemoryWord(stackPointer, data);
+static void cpuPushToStack(struct cpu8080 *cpu, uint16_t data) {
+	cpu->stackPointer -= 2;
+	cpu->writeMemoryWord(cpu->memory, cpu->stackPointer, data);
 }
 
-static uint16_t cpuPopFromStack(void) {
+static uint16_t cpuPopFromStack(struct cpu8080 *cpu) {
 	uint16_t data;
 
-	data = readMemoryWord(stackPointer);
+	data = cpu->readMemoryWord(cpu->memory, cpu->stackPointer);
 
-	stackPointer += 2;
+	cpu->stackPointer += 2;
 
 	return data;
 }
 
-static void cpuWriteWordToRegisterPair(uint8_t r1, uint8_t r2, uint16_t data) {
-	registers[r1] = data >> 8;
-	registers[r2] = data & 0x00FF;
+static void cpuWriteWordToRegisterPair(struct cpu8080 *cpu, uint8_t r1, uint8_t r2, uint16_t data) {
+	cpu->registers[r1] = data >> 8;
+	cpu->registers[r2] = data & 0x00FF;
 }
 
-static uint16_t cpuReadRegisterPair(uint8_t r1, uint8_t r2) {
-	return registers[r1] << 8 | registers[r2];
+static uint16_t cpuReadRegisterPair(struct cpu8080 *cpu, uint8_t r1, uint8_t r2) {
+	return cpu->registers[r1] << 8 | cpu->registers[r2];
 }
 
-static void cpuJumpToAddr(uint16_t addr) {
-#ifdef _CPU_TEST
-	if(addr == 0) {
-		printf("\n\nthe program has jumped to address 0x0000...\nprinting cpu status...\n");
-
-		printCpuState();
-
-		printf("exiting...\n");
-
-		exit(0);
-	}
-#endif /* #ifdef _CPU_TESTS */
-
-	programCounter = addr;
+static void cpuJumpToAddr(struct cpu8080 *cpu, uint16_t addr) {
+	cpu->programCounter = addr;
 }
 
-static void cpuJumpIf(bool value, uint16_t addr) {
+static void cpuJumpIf(struct cpu8080 *cpu, bool value, uint16_t addr) {
 	if(value) {
-		cpuJumpToAddr(addr);
+		cpuJumpToAddr(cpu, addr);
 	}
 	else
-		programCounter += 2;
+		cpu->programCounter += 2;
 }
 
-static void cpuInstructionMVI(uint8_t r, uint8_t data) {
-	registers[r] = data;
+static void cpuInstructionMVI(struct cpu8080 *cpu, uint8_t r, uint8_t data) {
+	cpu->registers[r] = data;
 }
 
-static void cpuInstructionMOV(uint8_t r1, uint8_t r2) {
-	registers[r1] = registers[r2];
+static void cpuInstructionMOV(struct cpu8080 *cpu, uint8_t r1, uint8_t r2) {
+	cpu->registers[r1] = cpu->registers[r2];
 }
 
-static void cpuInstructionMVItoM(uint8_t data) {
-	writeMemory(cpuReadRegisterPair(rH, rL), data);
+static void cpuInstructionMVItoM(struct cpu8080 *cpu, uint8_t data) {
+	cpu->writeMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL), data);
 }
 
-static void cpuInstructionMOVfromM(uint8_t r) {
-	registers[r] = readMemory(cpuReadRegisterPair(rH, rL));
+static void cpuInstructionMOVfromM(struct cpu8080 *cpu, uint8_t r) {
+	cpu->registers[r] = cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL));
 }
 
-static void cpuInstructionANI(uint8_t value) {
-	cpuResetStatusRegister();
+static void cpuInstructionANI(struct cpu8080 *cpu, uint8_t value) {
+	cpuResetStatusRegister(cpu);
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4,
-			isBitSet(value, 3) | isBitSet(registers[rA], 3));
+	clearOrSetBit(&cpu->registers[rSTATUS], 4,
+			isBitSet(value, 3) | isBitSet(cpu->registers[rA], 3));
 
-	registers[rA] &= value;
+	cpu->registers[rA] &= value;
 
 	/* carry */
-	clearBit(&registers[rSTATUS], 0);
+	clearBit(&cpu->registers[rSTATUS], 0);
 
 	/* parity */
-	clearOrSetParityBit(registers[rA]);
+	clearOrSetParityBit(cpu, cpu->registers[rA]);
 
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], 6, !registers[rA]);
+	clearOrSetBit(&cpu->registers[rSTATUS], 6, !cpu->registers[rA]);
 	
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[rA], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(cpu->registers[rA], 7));
 }
 
-static void cpuInstructionORI(uint8_t value) {
-	cpuResetStatusRegister();
+static void cpuInstructionORI(struct cpu8080 *cpu, uint8_t value) {
+	cpuResetStatusRegister(cpu);
 
-	registers[rA] |= value;
+	cpu->registers[rA] |= value;
 
 	/* carry */
-	clearBit(&registers[rSTATUS], carryF);
+	clearBit(&cpu->registers[rSTATUS], carryF);
 
 	/* parity */
-	clearOrSetParityBit(registers[rA]);
+	clearOrSetParityBit(cpu, cpu->registers[rA]);
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], auxCarryF, 0);
+	clearOrSetBit(&cpu->registers[rSTATUS], auxCarryF, 0);
 
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], zeroF, !registers[rA]);
+	clearOrSetBit(&cpu->registers[rSTATUS], zeroF, !cpu->registers[rA]);
 	
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], signF, isBitSet(registers[rA], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], signF, isBitSet(cpu->registers[rA], 7));
 }
 
-static void cpuInstructionXRI(uint8_t value) {
-	cpuResetStatusRegister();
+static void cpuInstructionXRI(struct cpu8080 *cpu, uint8_t value) {
+	cpuResetStatusRegister(cpu);
 
-	registers[rA] ^= value;
+	cpu->registers[rA] ^= value;
 
 	/* carry */
-	clearBit(&registers[rSTATUS], carryF);
+	clearBit(&cpu->registers[rSTATUS], carryF);
 
 	/* parity */
-	clearOrSetParityBit(registers[rA]);
+	clearOrSetParityBit(cpu, cpu->registers[rA]);
 
 	/* auxiliary carry*/
-	clearBit(&registers[rSTATUS], auxCarryF);
+	clearBit(&cpu->registers[rSTATUS], auxCarryF);
 
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], zeroF, !registers[rA]);
+	clearOrSetBit(&cpu->registers[rSTATUS], zeroF, !cpu->registers[rA]);
 	
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], signF, isBitSet(registers[rA], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], signF, isBitSet(cpu->registers[rA], 7));
 }
 
-static void cpuAdd(uint8_t r, uint8_t value) {
-	cpuResetStatusRegister();
+static void cpuAdd(struct cpu8080 *cpu, uint8_t r, uint8_t value) {
+	cpuResetStatusRegister(cpu);
 
 	/* carry */
-	clearOrSetBit(&registers[rSTATUS], 0, (((uint16_t)registers[r] + (uint16_t)value) > 0xff));
+	clearOrSetBit(&cpu->registers[rSTATUS], 0, (((uint16_t)cpu->registers[r] + (uint16_t)value) > 0xff));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, ((registers[r] & 0x0F) + (value & 0x0F) > 0x0F));
+	clearOrSetBit(&cpu->registers[rSTATUS], 4, ((cpu->registers[r] & 0x0F) + (value & 0x0F) > 0x0F));
 	
-	registers[r] += value;
+	cpu->registers[r] += value;
 
 	/* parity */
-	clearOrSetParityBit(registers[r]);
+	clearOrSetParityBit(cpu, cpu->registers[r]);
 	
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], 6, !registers[r]);
+	clearOrSetBit(&cpu->registers[rSTATUS], 6, !cpu->registers[r]);
 
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[r], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(cpu->registers[r], 7));
 }
 
-static void cpuInstructionADI(uint8_t value) {
-	cpuAdd(rA, value);
+static void cpuInstructionADI(struct cpu8080 *cpu, uint8_t value) {
+	cpuAdd(cpu, rA, value);
 }
 
-static void cpuInstructionACI(uint8_t value) {
+static void cpuInstructionACI(struct cpu8080 *cpu, uint8_t value) {
 	bool carryBit;
 
-	carryBit = isBitSet(registers[rSTATUS], carryF);
+	carryBit = isBitSet(cpu->registers[rSTATUS], carryF);
 
-	cpuResetStatusRegister();
+	cpuResetStatusRegister(cpu);
 
 	/* carry */
-	clearOrSetBit(&registers[rSTATUS], 0, (((uint16_t)registers[rA] + (uint16_t)value + (uint16_t)carryBit) > 0xff));
+	clearOrSetBit(&cpu->registers[rSTATUS], 0, (((uint16_t)cpu->registers[rA] + (uint16_t)value + (uint16_t)carryBit) > 0xff));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, (((registers[rA] & 0x0F) + (value & 0x0F) + ((uint8_t)carryBit)) > 0x0F));
+	clearOrSetBit(&cpu->registers[rSTATUS], 4, (((cpu->registers[rA] & 0x0F) + (value & 0x0F) + ((uint8_t)carryBit)) > 0x0F));
 	
-	registers[rA] += (value + (uint8_t)carryBit);
+	cpu->registers[rA] += (value + (uint8_t)carryBit);
 
 	/* parity */
-	clearOrSetParityBit(registers[rA]);
+	clearOrSetParityBit(cpu, cpu->registers[rA]);
 	
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], 6, !registers[rA]);
+	clearOrSetBit(&cpu->registers[rSTATUS], 6, !cpu->registers[rA]);
 
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[rA], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(cpu->registers[rA], 7));
 }
 
-static void cpuSubtract(uint8_t r, uint8_t value) {
+static void cpuSubtract(struct cpu8080 *cpu, uint8_t r, uint8_t value) {
 	/* carry */
-	clearOrSetBit(&registers[rSTATUS], 0, (((int16_t)registers[rA] - ((int16_t)value)) < 0));
+	clearOrSetBit(&cpu->registers[rSTATUS], 0, (((int16_t)cpu->registers[rA] - ((int16_t)value)) < 0));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, ((registers[rA]&0x0f) + ((~value)&0x0f)) >= 0x0f);
-#warning epiC
+	clearOrSetBit(&cpu->registers[rSTATUS], 4, ((cpu->registers[rA]&0x0f) + ((~value)&0x0f)) >= 0x0f);
 
-	registers[r] -= value;
+	cpu->registers[r] -= value;
 
 	/* parity */
-	clearOrSetParityBit(registers[r]);
+	clearOrSetParityBit(cpu, cpu->registers[r]);
 	
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], 6, !registers[r]);
+	clearOrSetBit(&cpu->registers[rSTATUS], 6, !cpu->registers[r]);
 
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[r], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(cpu->registers[r], 7));
 }
 
-static void cpuInstructionSUI(uint8_t value) {
-	cpuSubtract(rA, value);
+static void cpuInstructionSUI(struct cpu8080 *cpu, uint8_t value) {
+	cpuSubtract(cpu, rA, value);
 }
 
-static void cpuInstructionSBI(uint8_t value) {
+static void cpuInstructionSBI(struct cpu8080 *cpu, uint8_t value) {
 	bool borrowBit;
 
-	borrowBit = isBitSet(registers[rSTATUS], carryF);
+	borrowBit = isBitSet(cpu->registers[rSTATUS], carryF);
 
 	value += (uint8_t)borrowBit;
 
 	/* carry */
-	clearOrSetBit(&registers[rSTATUS], 0, (((uint16_t)registers[rA] - ((uint16_t)value)) < 0));
+	clearOrSetBit(&cpu->registers[rSTATUS], 0, (((uint16_t)cpu->registers[rA] - ((uint16_t)value)) < 0));
 
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, (((registers[rA] & 0x0F) > (value & 0x0F))));
+	clearOrSetBit(&cpu->registers[rSTATUS], 4, (((cpu->registers[rA] & 0x0F) > (value & 0x0F))));
 	
-	registers[rA] -= value;
+	cpu->registers[rA] -= value;
 
 	/* parity */
-	clearOrSetParityBit(registers[rA]);
+	clearOrSetParityBit(cpu, cpu->registers[rA]);
 	
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], 6, !registers[rA]);
+	clearOrSetBit(&cpu->registers[rSTATUS], 6, !cpu->registers[rA]);
 
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[rA], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(cpu->registers[rA], 7));
 }
 
-static void cpuInstructionCPI(uint8_t value) {
+static void cpuInstructionCPI(struct cpu8080 *cpu, uint8_t value) {
 	uint8_t temp;
 
-	temp = registers[rA];
+	temp = cpu->registers[rA];
 
-	cpuSubtract(rA, value);
+	cpuSubtract(cpu, rA, value);
 
-	registers[rA] = temp;
+	cpu->registers[rA] = temp;
 }
 
-static void cpuInstructionCALL(uint16_t addr) {
-	cpuPushToStack(programCounter+2);
-	cpuJumpToAddr(addr);
+static void cpuInstructionCALL(struct cpu8080 *cpu, uint16_t addr) {
+	cpuPushToStack(cpu, cpu->programCounter+2);
+	cpuJumpToAddr(cpu, addr);
 
 }
 
-static void cpuCallIf(bool value, uint16_t addr) {
+static void cpuCallIf(struct cpu8080 *cpu, bool value, uint16_t addr) {
 	if(value) {
-		cpuInstructionCALL(addr);
-		cycleCounter += 17;
+		cpuInstructionCALL(cpu, addr);
+		cpu->cycleCounter += 17;
 	}
 	else {
-		programCounter += 2;
-		cycleCounter += 11;
+		cpu->programCounter += 2;
+		cpu->cycleCounter += 11;
 	}
 }
 
-static void cpuInstructionRET(void) {
-	programCounter = cpuPopFromStack(); 
+static void cpuInstructionRET(struct cpu8080 *cpu) {
+	cpu->programCounter = cpuPopFromStack(cpu); 
 }
 
-static void cpuReturnIf(bool value) {
+static void cpuReturnIf(struct cpu8080 *cpu, bool value) {
 	if(value) {
-		cpuInstructionRET();
-		cycleCounter += 11;
+		cpuInstructionRET(cpu);
+		cpu->cycleCounter += 11;
 	}
 	else
-		cycleCounter += 5;
+		cpu->cycleCounter += 5;
 }
 
-static void cpuInstructionXCHG(void) {
+static void cpuInstructionXCHG(struct cpu8080 *cpu) {
 	uint8_t r1, r2;
 
-	r1 = registers[rD];
-	r2 = registers[rE];
+	r1 = cpu->registers[rD];
+	r2 = cpu->registers[rE];
 
-	registers[rD] = registers[rH];
-	registers[rE] = registers[rL];
+	cpu->registers[rD] = cpu->registers[rH];
+	cpu->registers[rE] = cpu->registers[rL];
 	
-	registers[rH] = r1;
-	registers[rL] = r2;
+	cpu->registers[rH] = r1;
+	cpu->registers[rL] = r2;
 }
 
-static void cpuInstructionINR(uint8_t r) {
+static void cpuInstructionINR(struct cpu8080 *cpu, uint8_t r) {
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)((registers[r] & 0x0F) + 1)) > 0x0F);
+	clearOrSetBit(&cpu->registers[rSTATUS], 4, ((unsigned)((cpu->registers[r] & 0x0F) + 1)) > 0x0F);
 	
-	registers[r]++;
+	cpu->registers[r]++;
 
 	/* parity */
-	clearOrSetParityBit(registers[r]);
+	clearOrSetParityBit(cpu, cpu->registers[r]);
 	
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], zeroF, !registers[r]);
+	clearOrSetBit(&cpu->registers[rSTATUS], zeroF, !cpu->registers[r]);
 
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], signF, isBitSet(registers[r], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], signF, isBitSet(cpu->registers[r], 7));
 }
 
-static void cpuInstructionINX(uint8_t r1, uint8_t r2) {
-	cpuWriteWordToRegisterPair(r1, r2, cpuReadRegisterPair(r1, r2) + 1);
+static void cpuInstructionINX(struct cpu8080 *cpu, uint8_t r1, uint8_t r2) {
+	cpuWriteWordToRegisterPair(cpu, r1, r2, cpuReadRegisterPair(cpu, r1, r2) + 1);
 }
 
-static void cpuInstructionDCR(uint8_t r) {
+static void cpuInstructionDCR(struct cpu8080 *cpu, uint8_t r) {
 	/* auxiliary carry*/
-	clearOrSetBit(&registers[rSTATUS], 4, (registers[r] & 0x0F) != 0);
+	clearOrSetBit(&cpu->registers[rSTATUS], 4, (cpu->registers[r] & 0x0F) != 0);
 	
-	registers[r]--;
+	cpu->registers[r]--;
 
 	/* parity */
-	clearOrSetParityBit(registers[r]);
+	clearOrSetParityBit(cpu, cpu->registers[r]);
 	
 	/* zero */
-	clearOrSetBit(&registers[rSTATUS], 6, !registers[r]);
+	clearOrSetBit(&cpu->registers[rSTATUS], 6, !cpu->registers[r]);
 
 	/* sign */
-	clearOrSetBit(&registers[rSTATUS], 7, isBitSet(registers[r], 7));
+	clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(cpu->registers[r], 7));
 }
 
-static void cpuInstructionDCX(uint8_t r1, uint8_t r2) {
-	cpuWriteWordToRegisterPair(r1, r2, cpuReadRegisterPair(r1, r2) - 1);
+static void cpuInstructionDCX(struct cpu8080 *cpu, uint8_t r1, uint8_t r2) {
+	cpuWriteWordToRegisterPair(cpu, r1, r2, cpuReadRegisterPair(cpu, r1, r2) - 1);
 }
 
-static void cpuInstructionDAD(uint16_t data) {
-	clearBit(&registers[rSTATUS], carryF);
-	clearOrSetBit(&registers[rSTATUS], 0, (((uint32_t)cpuReadRegisterPair(rH, rL) + (uint32_t)data) > UINT16_MAX));
+static void cpuInstructionDAD(struct cpu8080 *cpu, uint16_t data) {
+	clearBit(&cpu->registers[rSTATUS], carryF);
+	clearOrSetBit(&cpu->registers[rSTATUS], 0, (((uint32_t)cpuReadRegisterPair(cpu, rH, rL) + (uint32_t)data) > UINT16_MAX));
 
-	cpuWriteWordToRegisterPair(rH, rL, cpuReadRegisterPair(rH, rL) + data);
+	cpuWriteWordToRegisterPair(cpu, rH, rL, cpuReadRegisterPair(cpu, rH, rL) + data);
 }
 
-void cpuExecuteInstruction(void) {
+void cpuExecuteInstruction(struct cpu8080 *cpu) {
 	uint8_t opcode,
 		temp;
 
-	opcode = readMemory(programCounter);
+	opcode = cpu->readMemory(cpu->memory, cpu->programCounter);
 
-#ifdef _VERBOSE_DEBUG
-	printf("pc: %04X opcode: %02X\n", programCounter, opcode);
-#endif /* #ifdef _VERBOSE_DEBUG */
-
-#ifdef ZAZUSTYLE_DEBUG
-        printSuperzazuStyleState();
+#ifdef DEBUG 
+        printCpuState(*cpu);
 #endif
 
-	programCounter++;
+	cpu->programCounter++;
 
 	switch(opcode) {
 		/* NOP */
 		case 0x00:
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* LXI BC, d16 */
 		case 0x01:
-			cpuWriteWordToRegisterPair(rB, rC, readMemoryWord(programCounter));
+			cpuWriteWordToRegisterPair(cpu, rB, rC, cpu->readMemoryWord(cpu->memory, cpu->programCounter));
 
-			programCounter += 2;
+			cpu->programCounter += 2;
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* STAX BC */
 		case 0x02:
-			writeMemory(cpuReadRegisterPair(rB, rC), registers[rA]);
+			cpu->writeMemory(cpu->memory, cpuReadRegisterPair(cpu, rB, rC), cpu->registers[rA]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* INX BC */
 		case 0x03:
-			cpuInstructionINX(rB, rC);
+			cpuInstructionINX(cpu, rB, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR B */
 		case 0x04:
-			cpuInstructionINR(rB);
+			cpuInstructionINR(cpu, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR B */
 		case 0x05:
-			cpuInstructionDCR(rB);
+			cpuInstructionDCR(cpu, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI B, d8 */
 		case 0x06:
-			cpuInstructionMVI(rB, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rB, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RLC */
 		case 0x07:
-			clearOrSetBit(&registers[rSTATUS], carryF, isBitSet(registers[rA], 7));
+			clearOrSetBit(&cpu->registers[rSTATUS], carryF, isBitSet(cpu->registers[rA], 7));
 
-			temp = isBitSet(registers[rA], 7);
+			temp = isBitSet(cpu->registers[rA], 7);
 
-			registers[rA] <<= 1;
+			cpu->registers[rA] <<= 1;
 
-			clearOrSetBit(&registers[rA], 0, temp);
+			clearOrSetBit(&cpu->registers[rA], 0, temp);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ILLEGAL/UNDOCUMENTED OPCODE - NOP */
 		case 0x08:
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* DAD BC */
 		case 0x09:
-			cpuInstructionDAD(cpuReadRegisterPair(rB, rC));
+			cpuInstructionDAD(cpu, cpuReadRegisterPair(cpu, rB, rC));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* LDAX BC */
 		case 0x0A:
-			registers[rA] = readMemory(cpuReadRegisterPair(rB, rC));
+			cpu->registers[rA] = cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rB, rC));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* DCX BC */
 		case 0x0B:
-			cpuInstructionDCX(rB, rC);
+			cpuInstructionDCX(cpu, rB, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR C */
 		case 0x0C:
-			cpuInstructionINR(rC);
+			cpuInstructionINR(cpu, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR C */
 		case 0x0D:
-			cpuInstructionDCR(rC);
+			cpuInstructionDCR(cpu, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI C, d8 */
 		case 0x0E:
-			cpuInstructionMVI(rC, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rC, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RRC */
 		case 0x0F:
-			clearOrSetBit(&registers[rSTATUS], carryF, isBitSet(registers[rA], 0));
+			clearOrSetBit(&cpu->registers[rSTATUS], carryF, isBitSet(cpu->registers[rA], 0));
 
-			temp = isBitSet(registers[rA], 0);
+			temp = isBitSet(cpu->registers[rA], 0);
 
-			registers[rA] >>= 1;
+			cpu->registers[rA] >>= 1;
 
-			clearOrSetBit(&registers[rA], 7, temp);
+			clearOrSetBit(&cpu->registers[rA], 7, temp);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ILLEGAL/UNDOCUMENTED OPCODE - NOP */
 		case 0x10:
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* LXI DE, d16 */
 		case 0x11:
-			cpuWriteWordToRegisterPair(rD, rE, readMemoryWord(programCounter));
+			cpuWriteWordToRegisterPair(cpu, rD, rE, cpu->readMemoryWord(cpu->memory, cpu->programCounter));
 
-			programCounter += 2;
+			cpu->programCounter += 2;
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* STAX DE */
 		case 0x12:
-			writeMemory(cpuReadRegisterPair(rD, rE), registers[rA]);
+			cpu->writeMemory(cpu->memory, cpuReadRegisterPair(cpu, rD, rE), cpu->registers[rA]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* INX DE */
 		case 0x13:
-			cpuInstructionINX(rD, rE);
+			cpuInstructionINX(cpu, rD, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR D */
 		case 0x14:
-			cpuInstructionINR(rD);
+			cpuInstructionINR(cpu, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR D */
 		case 0x15:
-			cpuInstructionDCR(rD);
+			cpuInstructionDCR(cpu, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI D, d8 */
 		case 0x16:
-			cpuInstructionMVI(rD, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rD, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RAL */
 		case 0x17:
-			temp = isBitSet(registers[rSTATUS], carryF);
+			temp = isBitSet(cpu->registers[rSTATUS], carryF);
 
-			clearOrSetBit(&registers[rSTATUS], carryF, isBitSet(registers[rA], 7));
+			clearOrSetBit(&cpu->registers[rSTATUS], carryF, isBitSet(cpu->registers[rA], 7));
 
-			registers[rA] <<= 1;
+			cpu->registers[rA] <<= 1;
 
-			clearOrSetBit(&registers[rA], 0, temp);
+			clearOrSetBit(&cpu->registers[rA], 0, temp);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* DAD DE */
 		case 0x19:
-			cpuInstructionDAD(cpuReadRegisterPair(rD, rE));
+			cpuInstructionDAD(cpu, cpuReadRegisterPair(cpu, rD, rE));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* LDAX DE */
 		case 0x1A:
-			registers[rA] = readMemory(cpuReadRegisterPair(rD, rE));
+			cpu->registers[rA] = cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rD, rE));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* DCX DE */
 		case 0x1B:
-			cpuInstructionDCX(rD, rE);
+			cpuInstructionDCX(cpu, rD, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR E */
 		case 0x1C:
-			cpuInstructionINR(rE);
+			cpuInstructionINR(cpu, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR E */
 		case 0x1D:
-			cpuInstructionDCR(rE);
+			cpuInstructionDCR(cpu, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI E, d8 */
 		case 0x1E:
-			cpuInstructionMVI(rE, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rE, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RAR */
 		case 0x1F:
-			temp = isBitSet(registers[rSTATUS], carryF);
+			temp = isBitSet(cpu->registers[rSTATUS], carryF);
 
-			clearOrSetBit(&registers[rSTATUS], carryF, isBitSet(registers[rA], 0));
+			clearOrSetBit(&cpu->registers[rSTATUS], carryF, isBitSet(cpu->registers[rA], 0));
 
-			registers[rA] >>= 1;
+			cpu->registers[rA] >>= 1;
 
-			clearOrSetBit(&registers[rA], 7, temp);
+			clearOrSetBit(&cpu->registers[rA], 7, temp);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* LXI HL, d16 */
 		case 0x21:
-			cpuWriteWordToRegisterPair(rH, rL, readMemoryWord(programCounter));
+			cpuWriteWordToRegisterPair(cpu, rH, rL, cpu->readMemoryWord(cpu->memory, cpu->programCounter));
 
-			programCounter += 2;
-			cycleCounter += 10;
+			cpu->programCounter += 2;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* SHLD a16 */
 		case 0x22:
-			writeMemoryWord(readMemoryWord(programCounter), cpuReadRegisterPair(rH, rL));
+			cpu->writeMemoryWord(cpu->memory, cpu->readMemoryWord(cpu->memory, cpu->programCounter), cpuReadRegisterPair(cpu, rH, rL));
 
-			programCounter += 2;
-			cycleCounter += 16;
+			cpu->programCounter += 2;
+			cpu->cycleCounter += 16;
 
 			break;
 
 		/* INX HL */
 		case 0x23:
-			cpuInstructionINX(rH, rL);
+			cpuInstructionINX(cpu, rH, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR H */
 		case 0x24:
-			cpuInstructionINR(rH);
+			cpuInstructionINR(cpu, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR H */
 		case 0x25:
-			cpuInstructionDCR(rH);
+			cpuInstructionDCR(cpu, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI H, d8 */
 		case 0x26:
-			cpuInstructionMVI(rH, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rH, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* DAA */
 		case 0x27:
-			if((registers[rA] & 0x0F) > 9 || 
-					isBitSet(registers[rSTATUS], auxCarryF)) {
+			if((cpu->registers[rA] & 0x0F) > 9 || 
+					isBitSet(cpu->registers[rSTATUS], auxCarryF)) {
 
-				clearOrSetBit(&registers[rSTATUS], auxCarryF, 
-						((registers[rA] & 0x0F) + 6 > 0x0F));
+				clearOrSetBit(&cpu->registers[rSTATUS], auxCarryF, 
+						((cpu->registers[rA] & 0x0F) + 6 > 0x0F));
 
-				registers[rA] += 6;
+				cpu->registers[rA] += 6;
 			}
 
-			if((registers[rA] >> 4) > 9 || 
-					isBitSet(registers[rSTATUS], carryF)) {
+			if((cpu->registers[rA] >> 4) > 9 || 
+					isBitSet(cpu->registers[rSTATUS], carryF)) {
 
-				clearOrSetBit(&registers[rSTATUS], carryF,
-						(((uint16_t)registers[rA] + (6 << 4)) > 0xff));
+				clearOrSetBit(&cpu->registers[rSTATUS], carryF,
+						(((uint16_t)cpu->registers[rA] + (6 << 4)) > 0xff));
 
-				registers[rA] += (6 << 4);
+				cpu->registers[rA] += (6 << 4);
 			}
 			
-			clearOrSetParityBit(registers[rA]);
+			clearOrSetParityBit(cpu, cpu->registers[rA]);
 	
-			clearOrSetBit(&registers[rSTATUS], zeroF, !registers[rA]);
+			clearOrSetBit(&cpu->registers[rSTATUS], zeroF, !cpu->registers[rA]);
 
-			clearOrSetBit(&registers[rSTATUS], signF, isBitSet(registers[rA], 7));
+			clearOrSetBit(&cpu->registers[rSTATUS], signF, isBitSet(cpu->registers[rA], 7));
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* DAD HL */
 		case 0x29:
-			cpuInstructionDAD(cpuReadRegisterPair(rH, rL));
+			cpuInstructionDAD(cpu, cpuReadRegisterPair(cpu, rH, rL));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* LHLD a16 */
 		case 0x2A:
-			cpuWriteWordToRegisterPair(rH, rL, readMemoryWord(readMemoryWord(programCounter)));
+			cpuWriteWordToRegisterPair(cpu, rH, rL, cpu->readMemoryWord(cpu->memory, cpu->readMemoryWord(cpu->memory, cpu->programCounter)));
 
-			programCounter += 2;
-			cycleCounter += 16;
+			cpu->programCounter += 2;
+			cpu->cycleCounter += 16;
 
 			break;
 
 		/* DCX HL */
 		case 0x2B:
-			cpuInstructionDCX(rH, rL);
+			cpuInstructionDCX(cpu, rH, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR L */
 		case 0x2C:
-			cpuInstructionINR(rL);
+			cpuInstructionINR(cpu, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR L */
 		case 0x2D:
-			cpuInstructionDCR(rL);
+			cpuInstructionDCR(cpu, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI L, d8 */
 		case 0x2E:
-			cpuInstructionMVI(rL, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rL, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* CMA */
 		case 0x2F:
-			registers[rA] = ~registers[rA];
+			cpu->registers[rA] = ~cpu->registers[rA];
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* LXI SP, d16*/
 		case 0x31:
-			stackPointer = (readMemory(programCounter + 1) << 8) |
-				readMemory(programCounter);
+			cpu->stackPointer = (cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8) |
+				cpu->readMemory(cpu->memory, cpu->programCounter);
 
-			programCounter += 2;
-			cycleCounter += 10;
+			cpu->programCounter += 2;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* STA a16 */
 		case 0x32:
-			writeMemory(readMemoryWord(programCounter), registers[rA]);
+			cpu->writeMemory(cpu->memory, cpu->readMemoryWord(cpu->memory, cpu->programCounter), cpu->registers[rA]);
 
-			programCounter += 2;
-			cycleCounter += 13;
+			cpu->programCounter += 2;
+			cpu->cycleCounter += 13;
 
 			break;
 
 		/* INX SP */
 		case 0x33:
-			stackPointer++;
+			cpu->stackPointer++;
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR M */
 		case 0x34:
-			temp = readMemory(cpuReadRegisterPair(rH, rL));
+			temp = cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL));
 
 			/* auxiliary carry*/
-			clearOrSetBit(&registers[rSTATUS], 4, ((unsigned)(temp & 0x0F) + 1) > 0x0F);
+			clearOrSetBit(&cpu->registers[rSTATUS], 4, ((unsigned)(temp & 0x0F) + 1) > 0x0F);
 
-			writeMemory(cpuReadRegisterPair(rH, rL), ++temp);
+			cpu->writeMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL), ++temp);
 
 			/* parity */
-			clearOrSetParityBit(temp);
+			clearOrSetParityBit(cpu, temp);
 	
 			/* zero */
-			clearOrSetBit(&registers[rSTATUS], zeroF, !temp);
+			clearOrSetBit(&cpu->registers[rSTATUS], zeroF, !temp);
 
 			/* sign */
-			clearOrSetBit(&registers[rSTATUS], signF, isBitSet(temp, 7));
+			clearOrSetBit(&cpu->registers[rSTATUS], signF, isBitSet(temp, 7));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* DCR M */
 		case 0x35:
-			temp = readMemory(cpuReadRegisterPair(rH, rL));
+			temp = cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL));
 			
 			/* auxiliary carry*/
-			clearOrSetBit(&registers[rSTATUS], 4, (temp & 0x0F) != 0);
+			clearOrSetBit(&cpu->registers[rSTATUS], 4, (temp & 0x0F) != 0);
 
-			writeMemory(cpuReadRegisterPair(rH, rL), --temp);
+			cpu->writeMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL), --temp);
 
 			/* parity */
-			clearOrSetParityBit(temp);
+			clearOrSetParityBit(cpu, temp);
 	
 			/* zero */
-			clearOrSetBit(&registers[rSTATUS], 6, !temp);
+			clearOrSetBit(&cpu->registers[rSTATUS], 6, !temp);
 
 			/* sign */
-			clearOrSetBit(&registers[rSTATUS], 7, isBitSet(temp, 7));
+			clearOrSetBit(&cpu->registers[rSTATUS], 7, isBitSet(temp, 7));
 
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* MOV M, d8 */
 		case 0x36:
-			writeMemory(cpuReadRegisterPair(rH, rL), readMemory(programCounter++));
+			cpu->writeMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL), cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* STC */
 		case 0x37:
-			setBit(&registers[rSTATUS], carryF);
+			setBit(&cpu->registers[rSTATUS], carryF);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* DAD SP */
 		case 0x39:
-			cpuInstructionDAD(stackPointer);
+			cpuInstructionDAD(cpu, cpu->stackPointer);
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* LDA a16 */
 		case 0x3A:
-			registers[rA] = readMemory(readMemoryWord(programCounter));
+			cpu->registers[rA] = cpu->readMemory(cpu->memory, cpu->readMemoryWord(cpu->memory, cpu->programCounter));
 
-			programCounter += 2;
-			cycleCounter += 13;
+			cpu->programCounter += 2;
+			cpu->cycleCounter += 13;
 
 			break;
 
 		/* DCX SP */
 		case 0x3B:
-			stackPointer--;
+			cpu->stackPointer--;
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* INR A */
 		case 0x3C:
-			cpuInstructionINR(rA);
+			cpuInstructionINR(cpu, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* DCR A */
 		case 0x3D:
-			cpuInstructionDCR(rA);
+			cpuInstructionDCR(cpu, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MVI A, d8 */
 		case 0x3E:
-			cpuInstructionMVI(rA, readMemory(programCounter++));
+			cpuInstructionMVI(cpu, rA, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* CMC */
 		case 0x3F:
-			clearOrSetBit(&registers[rSTATUS], carryF, !isBitSet(registers[rSTATUS], carryF));
+			clearOrSetBit(&cpu->registers[rSTATUS], carryF, !isBitSet(cpu->registers[rSTATUS], carryF));
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* MOV B, B */
 		case 0x40:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV B, C */
 		case 0x41:
-			cpuInstructionMOV(rB, rC);
+			cpuInstructionMOV(cpu, rB, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV B, D */
 		case 0x42:
-			cpuInstructionMOV(rB, rD);
+			cpuInstructionMOV(cpu, rB, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 	
 		/* MOV B, E */
 		case 0x43:
-			cpuInstructionMOV(rB, rE);
+			cpuInstructionMOV(cpu, rB, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV B, H */
 		case 0x44:
-			cpuInstructionMOV(rB, rH);
+			cpuInstructionMOV(cpu, rB, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV M, L */
 		case 0x45:
-			cpuInstructionMOV(rB, rL);
+			cpuInstructionMOV(cpu, rB, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV B, A */
 		case 0x47:
-			cpuInstructionMOV(rB, rA);
+			cpuInstructionMOV(cpu, rB, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV B, M */
 		case 0x46:
-			cpuInstructionMOVfromM(rB);
+			cpuInstructionMOVfromM(cpu, rB);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV C, B */
 		case 0x48:
-			cpuInstructionMOV(rC, rB);
+			cpuInstructionMOV(cpu, rC, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV C, C */
 		case 0x49:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV C, D */
 		case 0x4A:
-			cpuInstructionMOV(rC, rD);
+			cpuInstructionMOV(cpu, rC, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 		
 		/* MOV C, E */
 		case 0x4B:
-			cpuInstructionMOV(rC, rE);
+			cpuInstructionMOV(cpu, rC, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV C, H */
 		case 0x4C:
-			cpuInstructionMOV(rC, rH);
+			cpuInstructionMOV(cpu, rC, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV C, L */
 		case 0x4D:
-			cpuInstructionMOV(rC, rL);
+			cpuInstructionMOV(cpu, rC, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV C, M */
 		case 0x4E:
-			cpuInstructionMOVfromM(rC);
+			cpuInstructionMOVfromM(cpu, rC);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV C, A */
 		case 0x4F:
-			cpuInstructionMOV(rC, rA);
+			cpuInstructionMOV(cpu, rC, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, B */
 		case 0x50:
-			cpuInstructionMOV(rD, rB);
+			cpuInstructionMOV(cpu, rD, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, C */
 		case 0x51:
-			cpuInstructionMOV(rD, rC);
+			cpuInstructionMOV(cpu, rD, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, D */
 		case 0x52:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, E */
 		case 0x53:
-			cpuInstructionMOV(rD, rE);
+			cpuInstructionMOV(cpu, rD, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, H */
 		case 0x54:
-			cpuInstructionMOV(rD, rH);
+			cpuInstructionMOV(cpu, rD, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, L */
 		case 0x55:
-			cpuInstructionMOV(rD, rL);
+			cpuInstructionMOV(cpu, rD, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV D, M */
 		case 0x56:
-			cpuInstructionMOVfromM(rD);
+			cpuInstructionMOVfromM(cpu, rD);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV D, A */
 		case 0x57:
-			cpuInstructionMOV(rD, rA);
+			cpuInstructionMOV(cpu, rD, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, B */
 		case 0x58:
-			cpuInstructionMOV(rE, rB);
+			cpuInstructionMOV(cpu, rE, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, C */
 		case 0x59:
-			cpuInstructionMOV(rE, rC);
+			cpuInstructionMOV(cpu, rE, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, D */
 		case 0x5A:
-			cpuInstructionMOV(rE, rD);
+			cpuInstructionMOV(cpu, rE, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, E */
 		case 0x5B:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, H */
 		case 0x5C:
-			cpuInstructionMOV(rE, rH);
+			cpuInstructionMOV(cpu, rE, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, L */
 		case 0x5D:
-			cpuInstructionMOV(rE, rL);
+			cpuInstructionMOV(cpu, rE, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV E, M */
 		case 0x5E:
-			cpuInstructionMOVfromM(rE);
+			cpuInstructionMOVfromM(cpu, rE);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV E, A */
 		case 0x5F:
-			cpuInstructionMOV(rE, rA);
+			cpuInstructionMOV(cpu, rE, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, B */
 		case 0x60:
-			cpuInstructionMOV(rH, rB);
+			cpuInstructionMOV(cpu, rH, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, C */
 		case 0x61:
-			cpuInstructionMOV(rH, rC);
+			cpuInstructionMOV(cpu, rH, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, D */
 		case 0x62:
-			cpuInstructionMOV(rH, rD);
+			cpuInstructionMOV(cpu, rH, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, E */
 		case 0x63:
-			cpuInstructionMOV(rH, rE);
+			cpuInstructionMOV(cpu, rH, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, H */
 		case 0x64:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, L */
 		case 0x65:
-			cpuInstructionMOV(rH, rL);
+			cpuInstructionMOV(cpu, rH, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV H, M */
 		case 0x66:
-			cpuInstructionMOVfromM(rH);
+			cpuInstructionMOVfromM(cpu, rH);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV H, A */
 		case 0x67:
-			cpuInstructionMOV(rH, rA);
+			cpuInstructionMOV(cpu, rH, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, B */
 		case 0x68:
-			cpuInstructionMOV(rL, rB);
+			cpuInstructionMOV(cpu, rL, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, C */
 		case 0x69:
-			cpuInstructionMOV(rL, rC);
+			cpuInstructionMOV(cpu, rL, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, D */
 		case 0x6A:
-			cpuInstructionMOV(rL, rD);
+			cpuInstructionMOV(cpu, rL, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, E */
 		case 0x6B:
-			cpuInstructionMOV(rL, rE);
+			cpuInstructionMOV(cpu, rL, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, H */
 		case 0x6C:
-			cpuInstructionMOV(rL, rH);
+			cpuInstructionMOV(cpu, rL, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, L */
 		case 0x6D:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV L, M */
 		case 0x6E:
-			cpuInstructionMOVfromM(rL);
+			cpuInstructionMOVfromM(cpu, rL);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV L, A */
 		case 0x6F:
-			cpuInstructionMOV(rL, rA);
+			cpuInstructionMOV(cpu, rL, rA);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV M, B */
 		case 0x70:
-			cpuInstructionMVItoM(registers[rB]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rB]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV M, C */
 		case 0x71:
-			cpuInstructionMVItoM(registers[rC]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rC]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV M, D */
 		case 0x72:
-			cpuInstructionMVItoM(registers[rD]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rD]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 
 		/* MOV M, E */
 		case 0x73:
-			cpuInstructionMVItoM(registers[rE]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rE]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV M, H */
 		case 0x74:
-			cpuInstructionMVItoM(registers[rH]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rH]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV M, L */
 		case 0x75:
-			cpuInstructionMVItoM(registers[rL]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rL]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV M, A */
 		case 0x77:
-			cpuInstructionMVItoM(registers[rA]);
+			cpuInstructionMVItoM(cpu, cpu->registers[rA]);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV A, B */
 		case 0x78:
-			cpuInstructionMOV(rA, rB);
+			cpuInstructionMOV(cpu, rA, rB);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV A, C */
 		case 0x79:
-			cpuInstructionMOV(rA, rC);
+			cpuInstructionMOV(cpu, rA, rC);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV A, D */
 		case 0x7A:
-			cpuInstructionMOV(rA, rD);
+			cpuInstructionMOV(cpu, rA, rD);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV A, E */
 		case 0x7B:
-			cpuInstructionMOV(rA, rE);
+			cpuInstructionMOV(cpu, rA, rE);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV A, H */
 		case 0x7C:
-			cpuInstructionMOV(rA, rH);
+			cpuInstructionMOV(cpu, rA, rH);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV A, L */
 		case 0x7D:
-			cpuInstructionMOV(rA, rL);
+			cpuInstructionMOV(cpu, rA, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* MOV A, M */
 		case 0x7E:
-			cpuInstructionMOVfromM(rA);
+			cpuInstructionMOVfromM(cpu, rA);
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* MOV A, A */
 		case 0x7F:
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* ADD B */
 		case 0x80:
-			cpuInstructionADI(registers[rB]);
+			cpuInstructionADI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADD C */
 		case 0x81:
-			cpuInstructionADI(registers[rC]);
+			cpuInstructionADI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADD D */
 		case 0x82:
-			cpuInstructionADI(registers[rD]);
+			cpuInstructionADI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADD E */
 		case 0x83:
-			cpuInstructionADI(registers[rE]);
+			cpuInstructionADI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADD H */
 		case 0x84:
-			cpuInstructionADI(registers[rH]);
+			cpuInstructionADI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADD L */
 		case 0x85:
-			cpuInstructionADI(registers[rL]);
+			cpuInstructionADI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADD M */
 		case 0x86:
-			cpuInstructionADI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionADI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* ADD A */
 		case 0x87:
-			cpuInstructionADI(registers[rA]);
+			cpuInstructionADI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC B */
 		case 0x88:
-			cpuInstructionACI(registers[rB]);
+			cpuInstructionACI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC C */
 		case 0x89:
-			cpuInstructionACI(registers[rC]);
+			cpuInstructionACI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC D */
 		case 0x8A:
-			cpuInstructionACI(registers[rD]);
+			cpuInstructionACI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC E */
 		case 0x8B:
-			cpuInstructionACI(registers[rE]);
+			cpuInstructionACI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC H */
 		case 0x8C:
-			cpuInstructionACI(registers[rH]);
+			cpuInstructionACI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC L */
 		case 0x8D:
-			cpuInstructionACI(registers[rL]);
+			cpuInstructionACI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ADC M */
 		case 0x8E:
-			cpuInstructionACI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionACI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* ADC C */
 		case 0x8F:
-			cpuInstructionACI(registers[rA]);
+			cpuInstructionACI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB B */
 		case 0x90:
-			cpuInstructionSUI(registers[rB]);
+			cpuInstructionSUI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB C */
 		case 0x91:
-			cpuInstructionSUI(registers[rC]);
+			cpuInstructionSUI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB D */
 		case 0x92:
-			cpuInstructionSUI(registers[rD]);
+			cpuInstructionSUI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB E */
 		case 0x93:
-			cpuInstructionSUI(registers[rE]);
+			cpuInstructionSUI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB H */
 		case 0x94:
-			cpuInstructionSUI(registers[rH]);
+			cpuInstructionSUI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB L */
 		case 0x95:
-			cpuInstructionSUI(registers[rL]);
+			cpuInstructionSUI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SUB M */
 		case 0x96:
-			cpuInstructionSUI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionSUI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* SUB A */
 		case 0x97:
-			cpuInstructionSUI(registers[rA]);
+			cpuInstructionSUI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB B */
 		case 0x98:
-			cpuInstructionSBI(registers[rB]);
+			cpuInstructionSBI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB C */
 		case 0x99:
-			cpuInstructionSBI(registers[rC]);
+			cpuInstructionSBI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB D */
 		case 0x9A:
-			cpuInstructionSBI(registers[rD]);
+			cpuInstructionSBI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB E */
 		case 0x9B:
-			cpuInstructionSBI(registers[rE]);
+			cpuInstructionSBI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB H */
 		case 0x9C:
-			cpuInstructionSBI(registers[rH]);
+			cpuInstructionSBI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB L */
 		case 0x9D:
-			cpuInstructionSBI(registers[rL]);
+			cpuInstructionSBI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* SBB M */
 		case 0x9E:
-			cpuInstructionSBI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionSBI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* SBB A */
 		case 0x9F:
-			cpuInstructionSBI(registers[rA]);
+			cpuInstructionSBI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ANA B */
 		case 0xA0:
-			cpuInstructionANI(registers[rB]);
+			cpuInstructionANI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* ANA B */
 		case 0xA1:
-			cpuInstructionANI(registers[rC]);
+			cpuInstructionANI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* ANA D */
 		case 0xA2:
-			cpuInstructionANI(registers[rD]);
+			cpuInstructionANI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* ANA E */
 		case 0xA3:
-			cpuInstructionANI(registers[rE]);
+			cpuInstructionANI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* ANA H */
 		case 0xA4:
-			cpuInstructionANI(registers[rH]);
+			cpuInstructionANI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* ANA L */
 		case 0xA5:
-			cpuInstructionANI(registers[rL]);
+			cpuInstructionANI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* ANA M */
 		case 0xA6:
-			cpuInstructionANI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionANI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 				
 			break;
 
 		/* ANA A */
 		case 0xA7:
-			cpuInstructionANI(registers[rA]);
+			cpuInstructionANI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 				
 			break;
 
 		/* XRA B */
 		case 0xA8:
-			cpuInstructionXRI(registers[rB]);
+			cpuInstructionXRI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* XRA C */
 		case 0xA9:
-			cpuInstructionXRI(registers[rC]);
+			cpuInstructionXRI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* XRA D */
 		case 0xAA:
-			cpuInstructionXRI(registers[rD]);
+			cpuInstructionXRI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* XRA E */
 		case 0xAB:
-			cpuInstructionXRI(registers[rE]);
+			cpuInstructionXRI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* XRA H */
 		case 0xAC:
-			cpuInstructionXRI(registers[rH]);
+			cpuInstructionXRI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* XRA L */
 		case 0xAD:
-			cpuInstructionXRI(registers[rL]);
+			cpuInstructionXRI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* XRA M */
 		case 0xAE:
-			cpuInstructionXRI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionXRI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* XRA A */
 		case 0xAF:
-			cpuInstructionXRI(registers[rA]);
+			cpuInstructionXRI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA B */
 		case 0xB0:
-			cpuInstructionORI(registers[rB]);
+			cpuInstructionORI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA C */
 		case 0xB1:
-			cpuInstructionORI(registers[rC]);
+			cpuInstructionORI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA D */
 		case 0xB2:
-			cpuInstructionORI(registers[rD]);
+			cpuInstructionORI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA E */
 		case 0xB3:
-			cpuInstructionORI(registers[rE]);
+			cpuInstructionORI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA H */
 		case 0xB4:
-			cpuInstructionORI(registers[rH]);
+			cpuInstructionORI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA L */
 		case 0xB5:
-			cpuInstructionORI(registers[rL]);
+			cpuInstructionORI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* ORA M */
 		case 0xB6:
-			cpuInstructionORI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionORI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* ORA A */
 		case 0xB7:
-			cpuInstructionORI(registers[rA]);
+			cpuInstructionORI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP B  */
 		case 0xB8:
-			cpuInstructionCPI(registers[rB]);
+			cpuInstructionCPI(cpu, cpu->registers[rB]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP C  */
 		case 0xB9:
-			cpuInstructionCPI(registers[rC]);
+			cpuInstructionCPI(cpu, cpu->registers[rC]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP D  */
 		case 0xBA:
-			cpuInstructionCPI(registers[rD]);
+			cpuInstructionCPI(cpu, cpu->registers[rD]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP E  */
 		case 0xBB:
-			cpuInstructionCPI(registers[rE]);
+			cpuInstructionCPI(cpu, cpu->registers[rE]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP H  */
 		case 0xBC:
-			cpuInstructionCPI(registers[rH]);
+			cpuInstructionCPI(cpu, cpu->registers[rH]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP L  */
 		case 0xBD:
-			cpuInstructionCPI(registers[rL]);
+			cpuInstructionCPI(cpu, cpu->registers[rL]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CMP M */ 
 		case 0xBE:
-			cpuInstructionCPI(readMemory(cpuReadRegisterPair(rH, rL)));
+			cpuInstructionCPI(cpu, cpu->readMemory(cpu->memory, cpuReadRegisterPair(cpu, rH, rL)));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* CMP A  */
 		case 0xBF:
-			cpuInstructionCPI(registers[rA]);
+			cpuInstructionCPI(cpu, cpu->registers[rA]);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* RNZ */
 		case 0xC0:
-			cpuReturnIf(!isBitSet(registers[rSTATUS], zeroF));
+			cpuReturnIf(cpu, !isBitSet(cpu->registers[rSTATUS], zeroF));
 
 			break;
 
 		/* POP BC*/
 		case 0xC1:
-			cpuWriteWordToRegisterPair(rB, rC, cpuPopFromStack());
+			cpuWriteWordToRegisterPair(cpu, rB, rC, cpuPopFromStack(cpu));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 
 		/* JNZ a16 */
 		case 0xC2:
-			cpuJumpIf(!isBitSet(registers[rSTATUS], 6), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, !isBitSet(cpu->registers[rSTATUS], 6), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* JMP a16 */
 		case 0xC3:
-			cpuJumpToAddr(readMemory(programCounter + 1) << 8 |
-					readMemory(programCounter));
+			cpuJumpToAddr(cpu, cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 |
+					cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* CNZ a16 */
 		case 0xC4:
-			cpuCallIf(!isBitSet(registers[rSTATUS], zeroF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, !isBitSet(cpu->registers[rSTATUS], zeroF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* PUSH BC */
 		case 0xC5:
-			cpuPushToStack(registers[rB] << 8 | registers[rC]);
+			cpuPushToStack(cpu, cpu->registers[rB] << 8 | cpu->registers[rC]);
 
-			cycleCounter += 11;
+			cpu->cycleCounter += 11;
 
 			break;
 
 		/* ADI d8*/
 		case 0xC6:
-			cpuInstructionADI(readMemory(programCounter++));
+			cpuInstructionADI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RST 0 */
 		case 0xC7:
-			cpuInstructionCALL(0x0000);
+			cpuInstructionCALL(cpu, 0x0000);
 
 			break;
 
 		/* RZ */
 		case 0xC8:
-			cpuReturnIf(isBitSet(registers[rSTATUS], zeroF));
+			cpuReturnIf(cpu, isBitSet(cpu->registers[rSTATUS], zeroF));
 
 			break;
 
 		/* RET */
 		case 0xC9:
-			cpuInstructionRET();
+			cpuInstructionRET(cpu);
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* JZ a16 */
 		case 0xCA:
-			cpuJumpIf(isBitSet(registers[rSTATUS], 6), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, isBitSet(cpu->registers[rSTATUS], 6), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* CZ a16 */
 		case 0xCC:
-			cpuCallIf(isBitSet(registers[rSTATUS], zeroF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, isBitSet(cpu->registers[rSTATUS], zeroF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 
 		/* CALL a16 */
 		case 0xCD:
-			cpuInstructionCALL(readMemory(programCounter + 1) << 8 |
-						readMemory(programCounter));
+			cpuInstructionCALL(cpu, cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 |
+						cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 17;
+			cpu->cycleCounter += 17;
 
 			break;
 
 		/* ACI d8 */
 		case 0xCE:
-			cpuInstructionACI(readMemory(programCounter++));
+			cpuInstructionACI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RNC */
 		case 0xD0:
-			cpuReturnIf(!isBitSet(registers[rSTATUS], carryF));
+			cpuReturnIf(cpu, !isBitSet(cpu->registers[rSTATUS], carryF));
 
 			break;
 
 		/* POP DE*/
 		case 0xD1:
-			cpuWriteWordToRegisterPair(rD, rE, cpuPopFromStack());
+			cpuWriteWordToRegisterPair(cpu, rD, rE, cpuPopFromStack(cpu));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* JNC a16 */
 		case 0xD2:
-			cpuJumpIf(!isBitSet(registers[rSTATUS], 0), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, !isBitSet(cpu->registers[rSTATUS], 0), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
-		/* OUT d8, A */
+		/* OUT d8 */
 		case 0xD3:
-#ifdef _CPU_TEST
-			if(registers[rC] == 2)
-				printf("%c", registers[rE]);
-			if(registers[rC] == 9) {
-				uint16_t i = 
-					(registers[rD] << 8 | registers[rE] & 0x00FF);
-				while(readMemory(i) != '$')
-					printf("%c", readMemory(i++));
-			}
-#endif
+			cpu->portOut(cpu, cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			programCounter++;
-			cycleCounter += 10;
+			cpu->programCounter++;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* CNC a16 */
 		case 0xD4:
-			cpuCallIf(!isBitSet(registers[rSTATUS], carryF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, !isBitSet(cpu->registers[rSTATUS], carryF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* PUSH DE */
 		case 0xD5:
-			cpuPushToStack(registers[rD] << 8 | registers[rE]);
+			cpuPushToStack(cpu, cpu->registers[rD] << 8 | cpu->registers[rE]);
 
-			cycleCounter += 11;
+			cpu->cycleCounter += 11;
 
 			break;
 
 		/* SUI d8 */
 		case 0xD6:
-			cpuInstructionSUI(readMemory(programCounter++));
+			cpuInstructionSUI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RC */
 		case 0xD8:
-			cpuReturnIf(isBitSet(registers[rSTATUS], carryF));
+			cpuReturnIf(cpu, isBitSet(cpu->registers[rSTATUS], carryF));
 
 			break;
 			
 		/* JC a16 */
 		case 0xDA:
-			cpuJumpIf(isBitSet(registers[rSTATUS], 0), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, isBitSet(cpu->registers[rSTATUS], 0), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* CC a16 */
 		case 0xDC:
-			cpuCallIf(isBitSet(registers[rSTATUS], carryF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, isBitSet(cpu->registers[rSTATUS], carryF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* SBI d8 */
 		case 0xDE:
-			cpuInstructionSBI(readMemory(programCounter++));
+			cpuInstructionSBI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RPO */
 		case 0xE0:
-			cpuReturnIf(!isBitSet(registers[rSTATUS], parityF));
+			cpuReturnIf(cpu, !isBitSet(cpu->registers[rSTATUS], parityF));
 
 			break;
 
 		/* POP HL*/
 		case 0xE1:
-			cpuWriteWordToRegisterPair(rH, rL, cpuPopFromStack());
+			cpuWriteWordToRegisterPair(cpu, rH, rL, cpuPopFromStack(cpu));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* JPO a16 */
 		case 0xE2:
-			cpuJumpIf(!isBitSet(registers[rSTATUS], 2), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, !isBitSet(cpu->registers[rSTATUS], 2), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* XTHL */
 		case 0xE3:
-			temp = registers[rH];
+			temp = cpu->registers[rH];
 
-			registers[rH] = readMemory(stackPointer + 1);
-			writeMemory(stackPointer + 1, temp);
+			cpu->registers[rH] = cpu->readMemory(cpu->memory, cpu->stackPointer + 1);
+			cpu->writeMemory(cpu->memory, cpu->stackPointer + 1, temp);
 
-			temp = registers[rL];
+			temp = cpu->registers[rL];
 
-			registers[rL] = readMemory(stackPointer);
-			writeMemory(stackPointer, temp);
+			cpu->registers[rL] = cpu->readMemory(cpu->memory, cpu->stackPointer);
+			cpu->writeMemory(cpu->memory, cpu->stackPointer, temp);
 
-			cycleCounter += 18;
+			cpu->cycleCounter += 18;
 
 			break;
 
 		/* CPO a16 */
 		case 0xE4:
-			cpuCallIf(!isBitSet(registers[rSTATUS], parityF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, !isBitSet(cpu->registers[rSTATUS], parityF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* PUSH HL */
 		case 0xE5:
-			cpuPushToStack(registers[rH] << 8 | registers[rL]);
+			cpuPushToStack(cpu, cpu->registers[rH] << 8 | cpu->registers[rL]);
 
-			cycleCounter += 11;
+			cpu->cycleCounter += 11;
 
 			break;
 
 		/* ANI d8 */
 		case 0xE6:
-			cpuInstructionANI(readMemory(programCounter++));
+			cpuInstructionANI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RPE */
 		case 0xE8:
-			cpuReturnIf(isBitSet(registers[rSTATUS], parityF));
+			cpuReturnIf(cpu, isBitSet(cpu->registers[rSTATUS], parityF));
 
 			break;
 
 		/* PCHL */
 		case 0xE9:
-			programCounter = cpuReadRegisterPair(rH, rL);
+			cpu->programCounter = cpuReadRegisterPair(cpu, rH, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* JPE a16 */
 		case 0xEA:
-			cpuJumpIf(isBitSet(registers[rSTATUS], 2), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, isBitSet(cpu->registers[rSTATUS], 2), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* XCHG */
 		case 0xEB:
-			cpuInstructionXCHG();
+			cpuInstructionXCHG(cpu);
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CPE a16 */
 		case 0xEC:
-			cpuCallIf(isBitSet(registers[rSTATUS], parityF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, isBitSet(cpu->registers[rSTATUS], parityF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* XRI d8 */
 		case 0xEE:
-			cpuInstructionXRI(readMemory(programCounter++));
+			cpuInstructionXRI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RP */
 		case 0xF0:
-			cpuReturnIf(!isBitSet(registers[rSTATUS], signF));
+			cpuReturnIf(cpu, !isBitSet(cpu->registers[rSTATUS], signF));
 
 			break;
 
 		/* POP PSW */
 		case 0xF1:
-			cpuWriteWordToRegisterPair(rA, rSTATUS, (cpuPopFromStack() & 0xFFD7) | 0x0002);
+			cpuWriteWordToRegisterPair(cpu, rA, rSTATUS, (cpuPopFromStack(cpu) & 0xFFD7) | 0x0002);
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
 		/* JP a16 */
 		case 0xF2:
-			cpuJumpIf(!isBitSet(registers[rSTATUS], 7), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, !isBitSet(cpu->registers[rSTATUS], 7), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
@@ -2270,54 +2255,54 @@ void cpuExecuteInstruction(void) {
 		case 0xF3:
 			/* This instruction doesn't do anything in the cpu tests */
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 	
 		/* CP a16 */
 		case 0xF4:
-			cpuCallIf(!isBitSet(registers[rSTATUS], signF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, !isBitSet(cpu->registers[rSTATUS], signF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* PUSH PSW */
 		case 0xF5:
-			cpuPushToStack(registers[rA] << 8
-					| registers[rSTATUS] & 0xD7);
+			cpuPushToStack(cpu, cpu->registers[rA] << 8
+					| cpu->registers[rSTATUS] & 0xD7);
 
-			cycleCounter += 11;
+			cpu->cycleCounter += 11;
 
 			break;
 
 		/* ORI d8 */
 		case 0xF6:
-			cpuInstructionORI(readMemory(programCounter++));
+			cpuInstructionORI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		/* RP */
 		case 0xF8:
-			cpuReturnIf(isBitSet(registers[rSTATUS], signF));
+			cpuReturnIf(cpu, isBitSet(cpu->registers[rSTATUS], signF));
 
 			break;
 
 		/* SPHL */
 		case 0xF9:
-			stackPointer = cpuReadRegisterPair(rH, rL);
+			cpu->stackPointer = cpuReadRegisterPair(cpu, rH, rL);
 
-			cycleCounter += 5;
+			cpu->cycleCounter += 5;
 
 			break;
 
 		/* JM a16 */
 		case 0xFA:
-			cpuJumpIf(isBitSet(registers[rSTATUS], 7), 
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuJumpIf(cpu, isBitSet(cpu->registers[rSTATUS], 7), 
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
-			cycleCounter += 10;
+			cpu->cycleCounter += 10;
 
 			break;
 
@@ -2325,31 +2310,29 @@ void cpuExecuteInstruction(void) {
 		case 0xFB:
 			/* This instruction doesn't do anything in the cpu tests */
 
-			cycleCounter += 4;
+			cpu->cycleCounter += 4;
 
 			break;
 
 		/* CM a16 */
 		case 0xFC:
-			cpuCallIf(isBitSet(registers[rSTATUS], signF),
-					readMemory(programCounter + 1) << 8 | readMemory(programCounter));
+			cpuCallIf(cpu, isBitSet(cpu->registers[rSTATUS], signF),
+					cpu->readMemory(cpu->memory, cpu->programCounter + 1) << 8 | cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			break;
 
 		/* CPI d8  */
 		case 0xFE:
-			cpuInstructionCPI(readMemory(programCounter++));
+			cpuInstructionCPI(cpu, cpu->readMemory(cpu->memory, cpu->programCounter++));
 
-			cycleCounter += 7;
+			cpu->cycleCounter += 7;
 
 			break;
 
 		default:
 			puts("unrecognized opcode");
 
-			printf("opcode: %X\n", opcode);
-
-			printCpuState();
+			printf("opcode: %X at %d\n", opcode, cpu->programCounter);
 
 			exit(1);
 	}

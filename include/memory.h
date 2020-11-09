@@ -5,12 +5,14 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-uint8_t		memory[0xffff];
+struct memory {
+	uint8_t		*memory;
+};
 
-uint8_t		readMemory(uint16_t address);
-uint16_t	readMemoryWord(uint16_t address);
-void		writeMemory(uint16_t address, uint8_t data);
-void		writeMemoryWord(uint16_t address, uint16_t data);
-void		loadRom(const char *path, const uint16_t start);
+uint8_t		testReadMemory(struct memory memory, uint16_t address);
+uint16_t	testReadMemoryWord(struct memory memory, uint16_t address);
+void		testWriteMemory(struct memory memory, uint16_t address, uint8_t data);
+void		testWriteMemoryWord(struct memory memory, uint16_t address, uint16_t data);
+void		loadRom(uint8_t *memory, const char *path, const uint16_t start);
 
 #endif /* #ifndef _MEMORY_H */

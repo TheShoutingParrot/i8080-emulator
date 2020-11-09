@@ -1,8 +1,6 @@
 workspace "i8080-emulator"
         configurations { "Debug", "DebugNoTest", "Release" }
 
-        libdirs {os.findlib("SDL2")}
-
         kind "ConsoleApp"
         language "C"
 
@@ -14,12 +12,14 @@ project "i8080-emulator"
         files { "include/*.h", "src/*.c" }
 
         filter "configurations:Debug"
-                defines { "DEBUG", "_CPU_TEST", "ZAZUSTYLE_DEBUG" }
+                defines { "DEBUG", "_CPU_TEST" "ZAZUSTYLE_DEBUG" }
 		buildoptions { "-g" }
                 symbols "On"
 
-	filter "configurations:DebugNoTest"
-                defines { "DEBUG", "ZAZUSTYLE_DEBUG" }
+	filter "configurations:SingleStepDebug"
+                defines { "DEBUG", "_CPU_TEST", "ZAZUSTYLE_DEBUG", "SINGLE_STEP" }
+		buildoptions { "-g" }
+                symbols "On"
 
 	filter "configurations:Release"
 		defines { "_CPU_TEST" }
