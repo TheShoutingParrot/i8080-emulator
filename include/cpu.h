@@ -31,15 +31,15 @@ enum _Signals {
 
 struct cpu8080 {
         /* memory and i/o functions */
-        uint8_t         (*readMemory)(struct memory, uint16_t);
-        uint16_t        (*readMemoryWord)(struct memory, uint16_t);
-        void            (*writeMemory)(struct memory, uint16_t, uint8_t);
-        void            (*writeMemoryWord)(struct memory, uint16_t, uint16_t);
+        uint8_t         (*readMemory)(uint8_t *, uint16_t);
+        uint16_t        (*readMemoryWord)(uint8_t *, uint16_t);
+        void            (*writeMemory)(uint8_t *, uint16_t, uint8_t);
+        void            (*writeMemoryWord)(uint8_t *, uint16_t, uint16_t);
 
         void            (*portOut)(struct cpu8080 *, uint8_t);
         uint8_t         (*portIn)(struct cpu8080 *, uint8_t);
 
-        struct memory   memory;
+        uint8_t		*memory;
 
         uint8_t         registers[totalR];
         uint16_t        programCounter,

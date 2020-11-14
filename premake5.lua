@@ -12,12 +12,12 @@ project "i8080-emulator"
         files { "include/*.h", "src/*.c" }
 
         filter "configurations:Debug"
-                defines { "DEBUG", "_CPU_TEST" "ZAZUSTYLE_DEBUG" }
+                defines { "DEBUG", "_CPU_TEST" }
 		buildoptions { "-g" }
                 symbols "On"
 
 	filter "configurations:SingleStepDebug"
-                defines { "DEBUG", "_CPU_TEST", "ZAZUSTYLE_DEBUG", "SINGLE_STEP" }
+                defines { "DEBUG", "_CPU_TEST", "SINGLE_STEP" }
 		buildoptions { "-g" }
                 symbols "On"
 

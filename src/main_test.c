@@ -1,3 +1,5 @@
+#ifdef _CPU_TEST
+
 #include "cpu.h"
 #include "util.h"
 #include "memory.h"
@@ -22,20 +24,20 @@ void testPortOut(struct cpu8080 *cpu, uint8_t port) {
 void runTest(const char *testPath) {
 	struct cpu8080 cpu;
 
-	cpu.memory.memory = calloc(0xffff, sizeof(*(cpu.memory.memory)));
+	cpu.memory = calloc(0xffff, sizeof(*(cpu.memory)));
 
-	if(cpu.memory.memory == NULL) {
+	if(cpu.memory == NULL) {
 		exit(1);
 	}
 
-	loadRom(cpu.memory.memory, testPath, 0x100);
+	loadRom(cpu.memory, testPath, 0x100);
 	
-	cpu.memory.memory[0x0000] = 0xD3;
-        cpu.memory.memory[0x0001] = 0x00;
+	cpu.memory[0x0000] = 0xD3;
+        cpu.memory[0x0001] = 0x00;
 
-        cpu.memory.memory[0x0005] = 0xD3;
-        cpu.memory.memory[0x0006] = 0x01;
-        cpu.memory.memory[0x0007] = 0xC9;
+        cpu.memory[0x0005] = 0xD3;
+        cpu.memory[0x0006] = 0x01;
+        cpu.memory[0x0007] = 0xC9;
 
 	cpu.readMemory = testReadMemory;
 	cpu.readMemoryWord = testReadMemoryWord;
@@ -68,7 +70,7 @@ void runTest(const char *testPath) {
 #endif
 	}
 
-	free(cpu.memory.memory);
+	free(cpu.memory);
 }
 
 int main(void) {
@@ -78,3 +80,5 @@ int main(void) {
 	
 	return EXIT_SUCCESS;
 }
+
+#endif /* #ifdef _CPU_TEST */
