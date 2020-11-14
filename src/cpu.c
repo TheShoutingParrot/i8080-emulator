@@ -357,7 +357,7 @@ static void cpuInstructionDAD(struct cpu8080 *cpu, uint16_t data) {
 	cpuWriteWordToRegisterPair(cpu, rH, rL, cpuReadRegisterPair(cpu, rH, rL) + data);
 }
 
-void cpuExecuteInstruction(struct cpu8080 *cpu, uint8_t *ports) {
+void cpuExecuteInstruction(struct cpu8080 *cpu) {
 	uint8_t opcode,
 		temp;
 
@@ -2060,7 +2060,7 @@ void cpuExecuteInstruction(struct cpu8080 *cpu, uint8_t *ports) {
 
 		/* OUT d8 */
 		case 0xD3:
-			cpu->portOut(cpu, ports, cpu->readMemory(cpu->memory, cpu->programCounter));
+			cpu->portOut(cpu, cpu->readMemory(cpu->memory, cpu->programCounter));
 
 			cpu->programCounter++;
 			cpu->cycleCounter += 10;
@@ -2107,7 +2107,7 @@ void cpuExecuteInstruction(struct cpu8080 *cpu, uint8_t *ports) {
 
 		/* IN d8 */
 		case 0xDB:
-			cpu->registers[rA] = cpu->portIn(cpu, ports, cpu->readMemory(cpu->memory, cpu->programCounter));
+			cpu->registers[rA] = cpu->portIn(cpu, cpu->readMemory(cpu->memory, (cpu->programCounter)++));
 			cpu->cycleCounter += 10;
 
 			break;

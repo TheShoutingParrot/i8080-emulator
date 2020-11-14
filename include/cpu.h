@@ -36,8 +36,8 @@ struct cpu8080 {
         void            (*writeMemory)(uint8_t *, uint16_t, uint8_t);
         void            (*writeMemoryWord)(uint8_t *, uint16_t, uint16_t);
 
-        void            (*portOut)(struct cpu8080 *, uint8_t *, uint8_t);
-        uint8_t         (*portIn)(struct cpu8080 *, uint8_t *, uint8_t);
+        void            (*portOut)(struct cpu8080 *, uint8_t);
+        uint8_t         (*portIn)(struct cpu8080 *, uint8_t);
 
         uint8_t		*memory;
 
@@ -50,7 +50,7 @@ struct cpu8080 {
         uint8_t         signalBuffer;
 };
 
-void cpuExecuteInstruction(struct cpu8080 *cpu, uint8_t *ports);
+void cpuExecuteInstruction(struct cpu8080 *cpu);
 void printCpuState(struct cpu8080 cpu);
 
 #endif /* #ifndef _CPU_H */
