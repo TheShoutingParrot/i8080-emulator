@@ -2105,6 +2105,13 @@ void cpuExecuteInstruction(struct cpu8080 *cpu) {
 
 			break;
 
+		/* IN d8 */
+		case 0xDB:
+			cpu->registers[rA] = cpu->portIn(cpu, cpu->readMemory(cpu->memory, cpu->programCounter));
+			cpu->cycleCounter += 10;
+
+			break;
+
 		/* CC a16 */
 		case 0xDC:
 			cpuCallIf(cpu, isBitSet(cpu->registers[rSTATUS], carryF),
