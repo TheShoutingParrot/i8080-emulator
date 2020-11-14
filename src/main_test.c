@@ -4,7 +4,7 @@
 #include "util.h"
 #include "memory.h"
 
-void testPortOut(struct cpu8080 *cpu, uint8_t port) {
+void testPortOut(struct cpu8080 *cpu, uint8_t ports, uint8_t port) {
 	if(cpu->readMemory(cpu->memory, cpu->programCounter) == 0) {
 		cpu->signalBuffer = exitSignal;
 	}
@@ -55,7 +55,7 @@ void runTest(const char *testPath) {
 	cpu.signalBuffer = noSignal;
 
 	for(;;) {
-		cpuExecuteInstruction(&cpu);
+		cpuExecuteInstruction(&cpu, NULL);
 
 		if(cpu.signalBuffer == exitSignal) {
 			printf("\ntest finished. cpu's final state:\n");
